@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { createSupabaseServerClient } from '@/utils/supabase/server';
 import { PageContainer } from '@/components/ui/PageGradientContainer';
 import { Button } from '@/components/ui/Button';
