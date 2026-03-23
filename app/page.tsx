@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { createSupabaseServerClient } from '@/utils/supabase/server';
 import { PageContainer } from '@/components/ui/PageGradientContainer';
-import { Button } from '@/components/ui/Button';
+import { Button } from '@/components/ui/button';
 import Image from 'next/image';
 
 export default async function Home() {
