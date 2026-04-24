@@ -2,18 +2,16 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useCombatSession } from "@/components/combat/useCombatSession";
+import type { CombatSession, Combatant } from "@/components/combat/types";
 import { createSupabaseClient } from "@/utils/supabase/client";
-import type { Tables } from "@/types/supabase";
 import { getNextTurnState } from "@/lib/combat";
-
-type SessionRow = Tables<"sessions">;
 
 type Props = {
   userId: string;
-  sessions: SessionRow[];
+  sessions: CombatSession[];
   selectedSessionId: string | null;
 };
 
@@ -55,7 +53,7 @@ export function GMCombatDashboard({ userId, sessions, selectedSessionId }: Props
     setNewCombatant((current) => ({ ...current, name: "" }));
   }
 
-  async function updateCombatant(id: string, patch: Partial<Tables<"combatants">>) {
+  async function updateCombatant(id: string, patch: Partial<Combatant>) {
     await supabase.from("combatants").update(patch).eq("id", id);
   }
 

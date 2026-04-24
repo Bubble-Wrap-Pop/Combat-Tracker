@@ -2,15 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createSupabaseClient } from "@/utils/supabase/client";
-import type { Tables } from "@/types/supabase";
-
-type SessionRow = Tables<"sessions">;
-type CombatantRow = Tables<"combatants">;
+import type { CombatSession, Combatant } from "@/components/combat/types";
 
 export function useCombatSession(sessionId: string | null) {
   const supabase = useMemo(() => createSupabaseClient(), []);
-  const [session, setSession] = useState<SessionRow | null>(null);
-  const [combatants, setCombatants] = useState<CombatantRow[]>([]);
+  const [session, setSession] = useState<CombatSession | null>(null);
+  const [combatants, setCombatants] = useState<Combatant[]>([]);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {

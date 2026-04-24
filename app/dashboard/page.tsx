@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { createSupabaseServerClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import { PageContainer } from '@/components/ui/PageGradientContainer'
-import { Button } from '@/components/ui/Button'
+import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 
 export default async function DashboardPage() {
@@ -22,73 +22,62 @@ export default async function DashboardPage() {
     .eq('id', user.id)
     .single()
 
-  const signout = async () => {
-    'use server'
-    const supabase = await createSupabaseServerClient()
-    await supabase.auth.signOut()
-    redirect('/')
-  }
+  const { count: gmSessionCount } = await supabase
+    .from('sessions')
+    .select('*', { count: 'exact', head: true })
+    .eq('game_master_id', user.id)
+
+  const { count: joinedSessionCount } = await supabase
+    .from('session_players')
+    .select('*', { count: 'exact', head: true })
+    .eq('player_id', user.id)
 
   return (
     <PageContainer>
-      <div className="max-w-4xl mx-auto">
-      <header className="flex items-center justify-between gap-4 mb-8 pb-4 border-b">
-          <h1 className="text-3xl font-bold text-zinc-900 dark:text-white truncate">Dashboard</h1>
-          <form action={signout} className="shrink-0">
-            <Button type="submit" variant="destructive">
-              Sign Out
-            </Button>
-          </form>
+      <div className="max-w-5xl mx-auto">
+      <header className="mb-8 pb-4 border-b border-zinc-200/70 dark:border-zinc-800">
+          <div>
+            <h1 className="text-3xl font-bold text-zinc-900 dark:text-white truncate">Command Center</h1>
+            <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1">
+              Launch encounters, join active combats, and manage your account.
+            </p>
+          </div>
         </header>
 
         <main className="grid gap-6">
-          <Card>
-            <h2 className="text-xl font-semibold mb-4 text-zinc-900 dark:text-white">User Information</h2>
-            <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-6 overflow-hidden">
-              {profile?.avatar_url ? (
-                <img 
-                  src={profile.avatar_url} 
-                  alt="Avatar" 
-                  className="w-24 h-24 shrink-0 rounded-full object-cover border border-zinc-200 dark:border-zinc-700"
-                />
-              ) : (
-                <div className="w-24 h-24 shrink-0 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-zinc-500 border border-zinc-300 dark:border-zinc-700">
-                  No Image
-                </div>
-              )}
-              <div className="space-y-2 text-zinc-600 dark:text-zinc-400 min-w-0 w-full">
-                <p className="break-all"><span className="font-medium text-zinc-900 dark:text-zinc-300 mr-1">Email:</span>{user.email}</p>
-                <p className="break-words"><span className="font-medium text-zinc-900 dark:text-zinc-300 mr-1">Full Name:</span>{profile?.full_name}</p>
-                <p className="break-all"><span className="font-medium text-zinc-900 dark:text-zinc-300 mr-1">User ID:</span>{user.id}</p>
-                <p className="break-words"><span className="font-medium text-zinc-900 dark:text-zinc-300 mr-1">Last Sign In:</span>{user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleString() : 'First login'}</p>
-              </div>
+          <Card className="p-6 bg-gradient-to-br from-zinc-100/70 via-white to-zinc-100/40 dark:from-zinc-900/70 dark:via-zinc-900 dark:to-zinc-800/40">
+            <h2 className="text-2xl font-semibold mb-2 text-zinc-900 dark:text-white">Live Combat Hub</h2>
+            <p className="text-zinc-600 dark:text-zinc-400 mb-6">
+              Choose your role to continue. Game Masters control initiative and vitals, while players stay synced in real time.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Button href="/gm" className="w-full h-11">Open GM Console</Button>
+              <Button href="/player" variant="outline" className="w-full h-11">Open Player View</Button>
             </div>
           </Card>
 
-          <Card className="flex flex-col sm:flex-row justify-between items-center text-center sm:text-left">
-            <div>
-              <h2 className="text-xl font-semibold text-zinc-900 dark:text-white">Profile Management</h2>
-              <p className="text-zinc-600 dark:text-zinc-400">Update your public profile details and avatar.</p>
+          <div className="grid gap-6 md:grid-cols-2">
+          <Card className="p-5">
+            <h3 className="text-lg font-semibold text-zinc-900 dark:text-white mb-3">Session Snapshot</h3>
+            <div className="space-y-2 text-sm text-zinc-600 dark:text-zinc-400">
+              <p><span className="font-medium text-zinc-900 dark:text-zinc-300">GM Sessions:</span> {gmSessionCount ?? 0}</p>
+              <p><span className="font-medium text-zinc-900 dark:text-zinc-300">Joined Sessions:</span> {joinedSessionCount ?? 0}</p>
+              <p><span className="font-medium text-zinc-900 dark:text-zinc-300">Last Sign In:</span> {user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleString() : 'First login'}</p>
             </div>
-            <Button href="/profile">
-              Edit Profile
+          </Card>
+
+          <Card className="flex flex-col justify-between p-5">
+            <div>
+              <h2 className="text-xl font-semibold text-zinc-900 dark:text-white">Account</h2>
+              <p className="text-zinc-600 dark:text-zinc-400 mt-1">
+                Signed in as {profile?.full_name || user.email}
+              </p>
+            </div>
+            <Button href="/profile" variant="outline" className="mt-4">
+              View profile
             </Button>
           </Card>
-
-          <Card className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between text-center sm:text-left">
-            <div>
-              <h2 className="text-xl font-semibold text-zinc-900 dark:text-white">Combat Tracker</h2>
-              <p className="text-zinc-600 dark:text-zinc-400">Run encounters as GM or join as a player.</p>
-            </div>
-            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-              <Button href="/gm" className="w-full sm:w-auto">
-                GM View
-              </Button>
-              <Button href="/player" variant="outline" className="w-full sm:w-auto">
-                Player View
-              </Button>
-            </div>
-          </Card>
+          </div>
         </main>
       </div>
     </PageContainer>

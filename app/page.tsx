@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { createSupabaseServerClient } from '@/utils/supabase/server';
 import { PageContainer } from '@/components/ui/PageGradientContainer';
-import { Button } from '@/components/ui/Button';
+import { Button } from '@/components/ui/button';
 import Image from 'next/image';
 
 export default async function Home() {
@@ -23,7 +23,7 @@ export default async function Home() {
 
         <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:gap-6">
           {user ? (
-            <Button href="/dashboard" className="sm:w-auto">
+            <Button href="/dashboard" className="w-full sm:w-auto">
               Go to Dashboard
             </Button>
           ) : (

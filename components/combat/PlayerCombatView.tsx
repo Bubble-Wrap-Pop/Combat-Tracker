@@ -2,17 +2,15 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useCombatSession } from "@/components/combat/useCombatSession";
+import type { CombatSession } from "@/components/combat/types";
 import { createSupabaseClient } from "@/utils/supabase/client";
-import type { Tables } from "@/types/supabase";
-
-type SessionRow = Tables<"sessions">;
 
 type Props = {
   userId: string;
-  memberships: { sessions: SessionRow | null }[];
+  memberships: { sessions: CombatSession[] | CombatSession | null }[];
   selectedSessionId: string | null;
 };
 
@@ -49,7 +47,9 @@ export function PlayerCombatView({ userId, memberships, selectedSessionId }: Pro
         <h2 className="mb-3 text-lg font-semibold">Joined Sessions</h2>
         <div className="flex flex-wrap gap-2">
           {memberships.map((membership) => {
-            const joinedSession = membership.sessions;
+            const joinedSession = Array.isArray(membership.sessions)
+              ? membership.sessions[0] ?? null
+              : membership.sessions;
             if (!joinedSession) return null;
             return (
               <Button

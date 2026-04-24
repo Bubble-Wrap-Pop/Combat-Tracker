@@ -1,99 +1,88 @@
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
-import { createSupabaseServerClient } from '@/utils/supabase/server'
-import { redirect } from 'next/navigation'
-import { PageContainer } from '@/components/ui/PageGradientContainer'
-import { Button } from '@/components/ui/Button'
-import { Card } from '@/components/ui/card'
-import { AvatarInput } from '@/components/client/AvatarSelection'
+import { createSupabaseServerClient } from "@/utils/supabase/server";
+import { redirect } from "next/navigation";
+import { PageContainer } from "@/components/ui/PageGradientContainer";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { SignOutButton } from "@/components/layout/SignOutButton";
 
 export default async function ProfilePage() {
-  const supabase = await createSupabaseServerClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  if (!user) redirect('/login')
+  if (!user) redirect("/login");
 
-  // Fetch existing profile data
   const { data: profile } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single()
-
-  const updateProfile = async (formData: FormData) => {
-    'use server'
-    const supabase = await createSupabaseServerClient()
-    const { data: { user } } = await supabase.auth.getUser()
-
-    const fullName = formData.get('full_name') as string;
-
-    const removeAvatar = formData.get('remove_avatar') === 'true';
-    let avatarUrl = formData.get('existing_avatar_url') as string;
-    const avatarFile = formData.get('avatar_file') as File;
-
-    if (removeAvatar) {
-      avatarUrl = '';
-    } else if (avatarFile && avatarFile.size > 0) {
-      const fileExt = avatarFile.name.split('.').pop();
-      const filePath = `${user?.id}-${Date.now()}.${fileExt}`;
-      
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, avatarFile);
-        
-      if (uploadError) throw uploadError;
-
-      const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
-      avatarUrl = data.publicUrl;
-    }
-
-    const updates = {
-      avatar_url: avatarUrl,
-      full_name: fullName,
-    }
-
-    const { error } = await supabase
-      .from('profiles')
-      .update(updates)
-      .eq('id', user?.id)
-    if (error) throw error
-    
-    redirect('/dashboard')
-  }
+    .from("profiles")
+    .select("*")
+    .eq("id", user.id)
+    .single();
 
   return (
     <PageContainer>
-      <div className="max-w-2xl mx-auto">
-        <Card>
-          <div className="flex items-center justify-between gap-4 mb-6">
-            <h1 className="text-2xl font-bold text-zinc-900 dark:text-white truncate">Edit Profile</h1>
-            <Button href="/dashboard" variant="outline" className="!px-4 !py-2 shrink-0">
-              Back to Dashboard
-            </Button>
+      <div className="mx-auto max-w-5xl">
+        <header className="mb-8 border-b border-zinc-200/70 pb-4 dark:border-zinc-800">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h1 className="truncate text-3xl font-bold text-zinc-900 dark:text-white">
+                Profile
+              </h1>
+              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                Your account details and public display information.
+              </p>
+            </div>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
+              <SignOutButton
+                variant="outline"
+                size="default"
+                className="w-full sm:w-auto"
+              />
+              <Button href="/profile/edit" className="w-full sm:w-auto">
+                Edit profile
+              </Button>
+            </div>
           </div>
+        </header>
 
-          <form action={updateProfile} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium">Email (Read Only)</label>
-              <input value={user.email} disabled className="border border-zinc-300 dark:border-zinc-700 p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800/50 text-zinc-500 w-full" />
+        <main>
+          <Card className="p-6 sm:p-8">
+            <div className="flex flex-col gap-8 sm:flex-row sm:items-start">
+              {profile?.avatar_url ? (
+                <img
+                  src={profile.avatar_url}
+                  alt=""
+                  className="h-28 w-28 shrink-0 rounded-full border border-zinc-200 object-cover dark:border-zinc-700 sm:h-32 sm:w-32"
+                />
+              ) : (
+                <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-full border border-zinc-300 bg-zinc-100 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 sm:h-32 sm:w-32">
+                  No photo
+                </div>
+              )}
+              <dl className="min-w-0 flex-1 space-y-4 text-sm">
+                <div>
+                  <dt className="font-medium text-zinc-900 dark:text-zinc-200">Full name</dt>
+                  <dd className="mt-1 text-zinc-600 dark:text-zinc-400">
+                    {profile?.full_name?.trim() || "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="font-medium text-zinc-900 dark:text-zinc-200">Email</dt>
+                  <dd className="mt-1 break-all text-zinc-600 dark:text-zinc-400">{user.email}</dd>
+                </div>
+                <div>
+                  <dt className="font-medium text-zinc-900 dark:text-zinc-200">User ID</dt>
+                  <dd className="mt-1 break-all font-mono text-xs text-zinc-600 dark:text-zinc-400">
+                    {user.id}
+                  </dd>
+                </div>
+              </dl>
             </div>
-
-            <div className="flex flex-col gap-1">
-              <label htmlFor="full_name" className="text-sm font-medium">Full Name</label>
-              <input type="text" name="full_name" id="full_name" className="border border-zinc-300 dark:border-zinc-700 p-2 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white w-full placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder='Enter your full name' defaultValue={profile?.full_name || ''} />
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <label htmlFor="avatar_file" className="text-sm font-medium">Profile Picture</label>
-              <AvatarInput existingAvatarUrl={profile?.avatar_url} />
-            </div>
-
-            <Button type="submit" className="mt-4 w-full">
-              Save Changes
-            </Button>
-          </form>
-        </Card>
+          </Card>
+        </main>
       </div>
     </PageContainer>
-  )
+  );
 }
