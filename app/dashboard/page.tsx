@@ -74,6 +74,21 @@ export default async function DashboardPage() {
               Edit Profile
             </Button>
           </Card>
+
+          <Card className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between text-center sm:text-left">
+            <div>
+              <h2 className="text-xl font-semibold text-zinc-900 dark:text-white">Combat Tracker</h2>
+              <p className="text-zinc-600 dark:text-zinc-400">Run encounters as GM or join as a player.</p>
+            </div>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+              <Button href="/gm" className="w-full sm:w-auto">
+                GM View
+              </Button>
+              <Button href="/player" variant="outline" className="w-full sm:w-auto">
+                Player View
+              </Button>
+            </div>
+          </Card>
         </main>
       </div>
     </PageContainer>

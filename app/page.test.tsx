@@ -18,7 +18,7 @@ describe('Home Page', () => {
     
     const heading = screen.getByRole('heading', { level: 1 })
     expect(heading).toBeInTheDocument()
-    expect(heading).toHaveTextContent(/Next.js \+ Supabase/i)
+    expect(heading).toHaveTextContent(/Umbral Sanctuary/i)
   })
 
   it('renders the login and signup links', async () => {
