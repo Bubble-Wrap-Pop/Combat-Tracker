@@ -35,7 +35,7 @@ function rowBackgroundClass(c: Combatant): string {
 
 export function GMCombatDashboard({ sessionId }: Props) {
   const supabase = useMemo(() => createSupabaseClient(), []);
-  const { session, combatants, loading } = useCombatSession(sessionId);
+  const { session, combatants, loading, reload } = useCombatSession(sessionId);
 
   const [creatureName, setCreatureName] = useState("");
   const [maxHp, setMaxHp] = useState(10);
@@ -67,7 +67,13 @@ export function GMCombatDashboard({ sessionId }: Props) {
         revealed_traits: [] as string[],
       }));
 
-      await supabase.from("combatants").insert(rows);
+      const { error } = await supabase.from("combatants").insert(rows);
+
+      if (error) {
+        console.error("Insert error:", error);
+      } else {
+        void reload();
+      }
       setCreatureName("");
       setMaxHp(10);
       setAddCount(1);
