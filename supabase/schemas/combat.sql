@@ -26,6 +26,7 @@ create table public.combatants (
   initiative integer default 0,
   hp_current integer not null,
   hp_max integer not null,
+  temp_hp integer not null default 0,
   armor_class integer not null,
   is_player boolean default false,
   conditions jsonb default '[]'::jsonb,

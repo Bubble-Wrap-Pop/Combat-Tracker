@@ -16,6 +16,7 @@ export type Combatant = {
   initiative: number | null;
   hp_current: number;
   hp_max: number;
+  temp_hp: number;
   armor_class: number;
   is_player: boolean | null;
   conditions: unknown;

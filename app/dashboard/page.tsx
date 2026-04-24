@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { createSupabaseServerClient } from '@/utils/supabase/server'
+import type { Tables } from '@/lib/supabase-database'
 import { redirect } from 'next/navigation'
 import { PageContainer } from '@/components/ui/PageGradientContainer'
 import { Button } from '@/components/ui/button'
@@ -16,11 +17,13 @@ export default async function DashboardPage() {
     redirect('/login')
   }
 
-  const { data: profile } = await supabase
+  const { data: profileRow } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', user.id)
     .single()
+
+  const profile = profileRow as Tables<'profiles'> | null
 
   const { count: gmSessionCount } = await supabase
     .from('sessions')
@@ -58,10 +61,10 @@ export default async function DashboardPage() {
 
           <div className="grid gap-6 md:grid-cols-2">
           <Card className="p-5">
-            <h3 className="text-lg font-semibold text-zinc-900 dark:text-white mb-3">Session Snapshot</h3>
+            <h3 className="text-lg font-semibold text-zinc-900 dark:text-white mb-3">Combat snapshot</h3>
             <div className="space-y-2 text-sm text-zinc-600 dark:text-zinc-400">
-              <p><span className="font-medium text-zinc-900 dark:text-zinc-300">GM Sessions:</span> {gmSessionCount ?? 0}</p>
-              <p><span className="font-medium text-zinc-900 dark:text-zinc-300">Joined Sessions:</span> {joinedSessionCount ?? 0}</p>
+              <p><span className="font-medium text-zinc-900 dark:text-zinc-300">Combats you run:</span> {gmSessionCount ?? 0}</p>
+              <p><span className="font-medium text-zinc-900 dark:text-zinc-300">Combats you joined:</span> {joinedSessionCount ?? 0}</p>
               <p><span className="font-medium text-zinc-900 dark:text-zinc-300">Last Sign In:</span> {user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleString() : 'First login'}</p>
             </div>
           </Card>

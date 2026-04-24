@@ -6,6 +6,7 @@ import { PageContainer } from "@/components/ui/PageGradientContainer";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { AvatarInput } from "@/components/client/AvatarSelection";
+import type { Tables } from "@/lib/supabase-database";
 
 export default async function EditProfilePage() {
   const supabase = await createSupabaseServerClient();
@@ -15,11 +16,12 @@ export default async function EditProfilePage() {
 
   if (!user) redirect("/login");
 
-  const { data: profile } = await supabase
+  const { data: profileRow } = await supabase
     .from("profiles")
     .select("*")
     .eq("id", user.id)
     .single();
+  const profile = profileRow as Tables<"profiles"> | null;
 
   const updateProfile = async (formData: FormData) => {
     "use server";
@@ -27,6 +29,7 @@ export default async function EditProfilePage() {
     const {
       data: { user },
     } = await supabase.auth.getUser();
+    if (!user) throw new Error("Unauthorized");
 
     const fullName = formData.get("full_name") as string;
     const removeAvatar = formData.get("remove_avatar") === "true";
@@ -37,7 +40,7 @@ export default async function EditProfilePage() {
       avatarUrl = "";
     } else if (avatarFile && avatarFile.size > 0) {
       const fileExt = avatarFile.name.split(".").pop();
-      const filePath = `${user?.id}-${Date.now()}.${fileExt}`;
+      const filePath = `${user.id}-${Date.now()}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from("avatars")
@@ -57,7 +60,7 @@ export default async function EditProfilePage() {
     const { error } = await supabase
       .from("profiles")
       .update(updates)
-      .eq("id", user?.id);
+      .eq("id", user.id);
     if (error) throw error;
 
     redirect("/profile");

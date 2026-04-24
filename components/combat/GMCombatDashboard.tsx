@@ -1,68 +1,82 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { FormEvent, useCallback, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { useCombatSession } from "@/components/combat/useCombatSession";
-import type { CombatSession, Combatant } from "@/components/combat/types";
+import type { Combatant } from "@/components/combat/types";
 import { createSupabaseClient } from "@/utils/supabase/client";
 import { getNextTurnState } from "@/lib/combat";
+import {
+  applyDamage,
+  applyHeal,
+  applyTempHpRule,
+  shouldDeleteMinionAtZero,
+} from "@/lib/combatHealth";
+import { cn } from "@/lib/utils";
 
 type Props = {
-  userId: string;
-  sessions: CombatSession[];
-  selectedSessionId: string | null;
+  sessionId: string;
 };
 
-export function GMCombatDashboard({ userId, sessions, selectedSessionId }: Props) {
-  const router = useRouter();
+function clampTurnIndex(turnIndex: number, len: number): number {
+  if (len <= 0) return -1;
+  return Math.min(Math.max(0, turnIndex), len - 1);
+}
+
+/** Row tint: temp HP overrides full-HP green; 0 HP is red when no temp. */
+function rowBackgroundClass(c: Combatant): string {
+  if ((c.temp_hp ?? 0) > 0) return "bg-sky-500/10";
+  if (c.hp_max > 0 && c.hp_current >= c.hp_max) return "bg-emerald-500/10";
+  if (c.hp_current === 0) return "bg-red-500/10";
+  return "bg-muted/30";
+}
+
+export function GMCombatDashboard({ sessionId }: Props) {
   const supabase = useMemo(() => createSupabaseClient(), []);
-  const { session, combatants, loading } = useCombatSession(selectedSessionId);
-  const [sessionName, setSessionName] = useState("");
-  const [newCombatant, setNewCombatant] = useState({
-    name: "",
-    initiative: 0,
-    hp_current: 10,
-    hp_max: 10,
-    armor_class: 10,
-    is_player: false,
-  });
+  const { session, combatants, loading } = useCombatSession(sessionId);
 
-  async function createSession(e: FormEvent) {
-    e.preventDefault();
-    if (!sessionName.trim()) return;
-    const { data } = await supabase
-      .from("sessions")
-      .insert({ name: sessionName.trim(), game_master_id: userId })
-      .select("id")
-      .single();
-    setSessionName("");
-    if (data?.id) router.push(`/gm?session=${data.id}`);
-  }
+  const [creatureName, setCreatureName] = useState("");
+  const [maxHp, setMaxHp] = useState(10);
+  const [addCount, setAddCount] = useState(1);
 
-  async function addCombatant(e: FormEvent) {
-    e.preventDefault();
-    if (!session?.id || !newCombatant.name.trim()) return;
-    await supabase.from("combatants").insert({
-      ...newCombatant,
-      name: newCombatant.name.trim(),
-      session_id: session.id,
-      conditions: [],
-    });
-    setNewCombatant((current) => ({ ...current, name: "" }));
-  }
+  const activeRowIndex = session ? clampTurnIndex(session.current_turn_index, combatants.length) : -1;
+  const activeCombatant = activeRowIndex >= 0 ? combatants[activeRowIndex] : null;
 
-  async function updateCombatant(id: string, patch: Partial<Combatant>) {
-    await supabase.from("combatants").update(patch).eq("id", id);
-  }
+  const addCreatures = useCallback(
+    async (e: FormEvent) => {
+      e.preventDefault();
+      if (!session?.id) return;
+      const base = creatureName.trim();
+      if (!base) return;
+      const hp = Math.max(0, Math.floor(Number(maxHp)) || 0);
+      const count = Math.max(1, Math.floor(Number(addCount)) || 1);
+      if (hp <= 0) return;
 
-  async function deleteCombatant(id: string) {
-    await supabase.from("combatants").delete().eq("id", id);
-  }
+      const rows = Array.from({ length: count }, (_, i) => ({
+        session_id: session.id,
+        name: count > 1 ? `${base} (${i + 1})` : base,
+        hp_max: hp,
+        hp_current: hp,
+        temp_hp: 0,
+        initiative: 0,
+        armor_class: 10,
+        is_player: false,
+        conditions: [] as string[],
+        revealed_traits: [] as string[],
+      }));
+
+      await supabase.from("combatants").insert(rows);
+      setCreatureName("");
+      setMaxHp(10);
+      setAddCount(1);
+    },
+    [addCount, creatureName, maxHp, session?.id, supabase]
+  );
 
   async function advanceTurn() {
-    if (!session) return;
+    if (!session || combatants.length === 0) return;
     const { nextTurnIndex, nextRound } = getNextTurnState(
       session.current_turn_index,
       session.current_round,
@@ -70,166 +84,243 @@ export function GMCombatDashboard({ userId, sessions, selectedSessionId }: Props
     );
     await supabase
       .from("sessions")
-      .update({ current_turn_index: nextTurnIndex, current_round: nextRound, combat_status: "active" })
+      .update({ current_turn_index: nextTurnIndex, current_round: nextRound })
       .eq("id", session.id);
   }
 
-  async function updateStatus(status: "setup" | "active" | "completed") {
-    if (!session) return;
-    await supabase.from("sessions").update({ combat_status: status }).eq("id", session.id);
+  if (!session) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {loading ? "Loading combat…" : "Combat not found or you no longer have access."}
+      </p>
+    );
   }
 
   return (
     <div className="grid gap-6">
-      <Card className="p-4">
-        <h2 className="mb-3 text-lg font-semibold">Create Session</h2>
-        <form className="flex flex-col gap-2 sm:flex-row" onSubmit={createSession}>
-          <input
-            className="rounded border px-3 py-2"
-            value={sessionName}
-            onChange={(e) => setSessionName(e.target.value)}
-            placeholder="Encounter name"
-          />
-          <Button type="submit">Create</Button>
-        </form>
-      </Card>
-
-      <Card className="p-4">
-        <h2 className="mb-3 text-lg font-semibold">Your Sessions</h2>
-        <div className="flex flex-wrap gap-2">
-          {sessions.map((entry) => (
-            <Button
-              key={entry.id}
-              type="button"
-              variant={entry.id === selectedSessionId ? "default" : "outline"}
-              onClick={() => router.push(`/gm?session=${entry.id}`)}
-            >
-              {entry.name}
+      <Card>
+        <CardHeader className="border-b border-border pb-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle className="text-base">Turn order</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Round <span className="font-medium text-foreground">{session.current_round}</span>
+                {combatants.length > 0 ? (
+                  <>
+                    {" "}
+                    · Turn{" "}
+                    <span className="font-medium text-foreground">
+                      {activeRowIndex + 1} of {combatants.length}
+                    </span>
+                    {activeCombatant ? (
+                      <>
+                        {" "}
+                        · <span className="font-medium text-foreground">{activeCombatant.name}</span>
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  <span> · Add combatants to track turns.</span>
+                )}
+                {loading ? <span className="ml-2 text-xs">(syncing…)</span> : null}
+              </p>
+            </div>
+            <Button type="button" variant="default" disabled={combatants.length === 0} onClick={() => void advanceTurn()}>
+              Next turn
             </Button>
-          ))}
-        </div>
+          </div>
+        </CardHeader>
       </Card>
 
-      {session && (
-        <>
-          <Card className="p-4">
-            <h2 className="mb-3 text-lg font-semibold">Encounter Controls</h2>
-            <p className="mb-3 text-sm text-zinc-600">
-              Round {session.current_round}, Turn Index {session.current_turn_index}, Status: {session.combat_status}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={() => void updateStatus("active")}>
-                Start Encounter
-              </Button>
-              <Button type="button" variant="outline" onClick={() => void advanceTurn()}>
-                Next Turn
-              </Button>
-              <Button type="button" variant="destructive" onClick={() => void updateStatus("completed")}>
-                End Encounter
-              </Button>
-            </div>
-          </Card>
-
-          <Card className="p-4">
-            <h2 className="mb-3 text-lg font-semibold">Add Combatant</h2>
-            <form className="grid gap-2 sm:grid-cols-3" onSubmit={addCombatant}>
-              <input
-                className="rounded border px-3 py-2"
-                value={newCombatant.name}
-                onChange={(e) => setNewCombatant((s) => ({ ...s, name: e.target.value }))}
-                placeholder="Name"
-              />
-              <input
-                className="rounded border px-3 py-2"
-                type="number"
-                value={newCombatant.initiative}
-                onChange={(e) => setNewCombatant((s) => ({ ...s, initiative: Number(e.target.value) }))}
-                placeholder="Initiative"
-              />
-              <input
-                className="rounded border px-3 py-2"
-                type="number"
-                value={newCombatant.armor_class}
-                onChange={(e) => setNewCombatant((s) => ({ ...s, armor_class: Number(e.target.value) }))}
-                placeholder="AC"
-              />
-              <input
-                className="rounded border px-3 py-2"
-                type="number"
-                value={newCombatant.hp_current}
-                onChange={(e) => setNewCombatant((s) => ({ ...s, hp_current: Number(e.target.value) }))}
-                placeholder="HP Current"
-              />
-              <input
-                className="rounded border px-3 py-2"
-                type="number"
-                value={newCombatant.hp_max}
-                onChange={(e) => setNewCombatant((s) => ({ ...s, hp_max: Number(e.target.value) }))}
-                placeholder="HP Max"
-              />
-              <label className="flex items-center gap-2 rounded border px-3 py-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={newCombatant.is_player}
-                  onChange={(e) => setNewCombatant((s) => ({ ...s, is_player: e.target.checked }))}
-                />
-                Player Character
+      <Card>
+        <CardHeader>
+          <CardTitle>Add creatures</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form
+            className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end"
+            onSubmit={(e) => void addCreatures(e)}
+          >
+            <div className="min-w-0 flex-1 sm:min-w-[12rem]">
+              <label htmlFor="gm-creature-name" className="mb-1 block text-xs font-medium text-muted-foreground">
+                Creature name
               </label>
-              <Button className="sm:col-span-3" type="submit">
-                Add Combatant
-              </Button>
-            </form>
-          </Card>
-
-          <Card className="p-4">
-            <h2 className="mb-3 text-lg font-semibold">Combatants {loading ? "(syncing...)" : ""}</h2>
-            <div className="grid gap-3">
-              {combatants.map((combatant, index) => (
-                <div key={combatant.id} className="grid gap-2 rounded border p-3 sm:grid-cols-6">
-                  <div className="font-medium">
-                    #{index + 1} {combatant.name}
-                  </div>
-                  <input
-                    className="rounded border px-2 py-1"
-                    type="number"
-                    value={combatant.initiative ?? 0}
-                    onChange={(e) => void updateCombatant(combatant.id, { initiative: Number(e.target.value) })}
-                  />
-                  <input
-                    className="rounded border px-2 py-1"
-                    type="number"
-                    value={combatant.hp_current}
-                    onChange={(e) => void updateCombatant(combatant.id, { hp_current: Number(e.target.value) })}
-                  />
-                  <input
-                    className="rounded border px-2 py-1"
-                    type="number"
-                    value={combatant.hp_max}
-                    onChange={(e) => void updateCombatant(combatant.id, { hp_max: Number(e.target.value) })}
-                  />
-                  <input
-                    className="rounded border px-2 py-1"
-                    type="text"
-                    defaultValue={Array.isArray(combatant.conditions) ? combatant.conditions.join(", ") : ""}
-                    placeholder="conditions csv"
-                    onBlur={(e) =>
-                      void updateCombatant(combatant.id, {
-                        conditions: e.target.value
-                          .split(",")
-                          .map((item) => item.trim())
-                          .filter(Boolean),
-                      })
-                    }
-                  />
-                  <Button type="button" variant="destructive" onClick={() => void deleteCombatant(combatant.id)}>
-                    Remove
-                  </Button>
-                </div>
-              ))}
+              <Input
+                id="gm-creature-name"
+                value={creatureName}
+                onChange={(e) => setCreatureName(e.target.value)}
+                placeholder="Goblin"
+              />
             </div>
-          </Card>
-        </>
+            <div className="w-full sm:w-28">
+              <label htmlFor="gm-max-hp" className="mb-1 block text-xs font-medium text-muted-foreground">
+                Max HP
+              </label>
+              <Input
+                id="gm-max-hp"
+                type="number"
+                min={1}
+                value={maxHp}
+                onChange={(e) => setMaxHp(Number(e.target.value))}
+              />
+            </div>
+            <div className="w-full sm:w-24">
+              <label htmlFor="gm-count" className="mb-1 block text-xs font-medium text-muted-foreground">
+                Count
+              </label>
+              <Input
+                id="gm-count"
+                type="number"
+                min={1}
+                value={addCount}
+                onChange={(e) => setAddCount(Number(e.target.value))}
+              />
+            </div>
+            <Button type="submit">Add creatures</Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Combatants</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          {combatants.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No combatants yet.</p>
+          ) : (
+            combatants.map((combatant, index) => (
+              <CombatantRow
+                key={combatant.id}
+                combatant={combatant}
+                displayIndex={index + 1}
+                isActiveTurn={index === activeRowIndex}
+                rowClassName={rowBackgroundClass(combatant)}
+                supabase={supabase}
+              />
+            ))
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function CombatantRow({
+  combatant,
+  displayIndex,
+  isActiveTurn,
+  rowClassName,
+  supabase,
+}: {
+  combatant: Combatant;
+  displayIndex: number;
+  isActiveTurn: boolean;
+  rowClassName: string;
+  supabase: ReturnType<typeof createSupabaseClient>;
+}) {
+  const [damage, setDamage] = useState("");
+  const [heal, setHeal] = useState("");
+  const [temp, setTemp] = useState("");
+
+  const applyDamageAction = async () => {
+    const amt = Math.max(0, Math.floor(Number(damage)) || 0);
+    if (amt <= 0) return;
+    const { hp_current, temp_hp } = applyDamage(combatant.hp_current, combatant.temp_hp ?? 0, amt);
+    if (shouldDeleteMinionAtZero(hp_current, combatant.name)) {
+      await supabase.from("combatants").delete().eq("id", combatant.id);
+    } else {
+      await supabase.from("combatants").update({ hp_current, temp_hp }).eq("id", combatant.id);
+    }
+    setDamage("");
+  };
+
+  const applyHealAction = async () => {
+    const amt = Math.max(0, Math.floor(Number(heal)) || 0);
+    if (amt <= 0) return;
+    const hp_current = applyHeal(combatant.hp_current, combatant.hp_max, amt);
+    await supabase.from("combatants").update({ hp_current }).eq("id", combatant.id);
+    setHeal("");
+  };
+
+  const applyTempAction = async () => {
+    const amt = Math.max(0, Math.floor(Number(temp)) || 0);
+    const temp_hp = applyTempHpRule(combatant.temp_hp ?? 0, amt);
+    await supabase.from("combatants").update({ temp_hp }).eq("id", combatant.id);
+    setTemp("");
+  };
+
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-3 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:gap-4",
+        rowClassName,
+        isActiveTurn && "ring-2 ring-primary ring-offset-2 ring-offset-background"
       )}
+    >
+      <div className="min-w-0 shrink-0 sm:w-40">
+        <div className="font-medium text-foreground">
+          #{displayIndex} {combatant.name}
+        </div>
+      </div>
+      <div className="flex shrink-0 flex-col gap-0.5 text-sm sm:flex-1">
+        <div>
+          HP{" "}
+          <span className="font-medium">
+            {combatant.hp_current} / {combatant.hp_max}
+          </span>
+        </div>
+        <div className="text-muted-foreground">
+          Temp HP: <span className="font-medium text-foreground">{combatant.temp_hp}</span>
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-end">
+        <form
+          className="flex flex-wrap items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void applyDamageAction();
+          }}
+        >
+          <div className="w-24">
+            <label className="mb-1 block text-xs text-muted-foreground">Damage</label>
+            <Input type="number" min={0} value={damage} onChange={(e) => setDamage(e.target.value)} placeholder="0" />
+          </div>
+          <Button type="submit" size="sm" variant="outline">
+            Apply
+          </Button>
+        </form>
+        <form
+          className="flex flex-wrap items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void applyHealAction();
+          }}
+        >
+          <div className="w-24">
+            <label className="mb-1 block text-xs text-muted-foreground">Heal</label>
+            <Input type="number" min={0} value={heal} onChange={(e) => setHeal(e.target.value)} placeholder="0" />
+          </div>
+          <Button type="submit" size="sm" variant="outline">
+            Apply
+          </Button>
+        </form>
+        <form
+          className="flex flex-wrap items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void applyTempAction();
+          }}
+        >
+          <div className="w-24">
+            <label className="mb-1 block text-xs text-muted-foreground">Temp HP</label>
+            <Input type="number" min={0} value={temp} onChange={(e) => setTemp(e.target.value)} placeholder="0" />
+          </div>
+          <Button type="submit" size="sm" variant="outline">
+            Set
+          </Button>
+        </form>
+      </div>
     </div>
   );
 }

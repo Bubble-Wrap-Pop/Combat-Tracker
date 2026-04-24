@@ -24,7 +24,7 @@ export default async function PlayerPage(props: { searchParams: SearchParams }) 
   return (
     <PageContainer>
       <div className="mx-auto w-full max-w-6xl">
-        <h1 className="mb-6 text-3xl font-bold text-zinc-900 dark:text-white">Player Live View</h1>
+        <h1 className="mb-6 text-3xl font-bold text-zinc-900 dark:text-white">Player combat view</h1>
         <PlayerCombatView
           userId={user.id}
           memberships={memberships ?? []}

@@ -6,6 +6,7 @@ import { PageContainer } from "@/components/ui/PageGradientContainer";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SignOutButton } from "@/components/layout/SignOutButton";
+import type { Tables } from "@/lib/supabase-database";
 
 export default async function ProfilePage() {
   const supabase = await createSupabaseServerClient();
@@ -15,11 +16,12 @@ export default async function ProfilePage() {
 
   if (!user) redirect("/login");
 
-  const { data: profile } = await supabase
+  const { data: profileRow } = await supabase
     .from("profiles")
     .select("*")
     .eq("id", user.id)
     .single();
+  const profile = profileRow as Tables<"profiles"> | null;
 
   return (
     <PageContainer>

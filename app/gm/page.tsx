@@ -3,12 +3,10 @@ export const dynamic = "force-dynamic";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/utils/supabase/server";
 import { PageContainer } from "@/components/ui/PageGradientContainer";
-import { GMCombatDashboard } from "@/components/combat/GMCombatDashboard";
+import { GMLobby } from "@/components/combat/GMLobby";
+import type { CombatSession } from "@/components/combat/types";
 
-type SearchParams = Promise<{ session?: string }>;
-
-export default async function GMPage(props: { searchParams: SearchParams }) {
-  const searchParams = await props.searchParams;
+export default async function GMPage() {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -16,17 +14,19 @@ export default async function GMPage(props: { searchParams: SearchParams }) {
 
   if (!user) redirect("/login");
 
-  const { data: sessions } = await supabase
+  const { data: sessionsData } = await supabase
     .from("sessions")
     .select("*")
     .eq("game_master_id", user.id)
     .order("created_at", { ascending: false });
 
+  const combats = (sessionsData ?? []) as CombatSession[];
+
   return (
     <PageContainer>
       <div className="mx-auto w-full max-w-6xl">
-        <h1 className="mb-6 text-3xl font-bold text-zinc-900 dark:text-white">GM Combat Dashboard</h1>
-        <GMCombatDashboard userId={user.id} sessions={sessions ?? []} selectedSessionId={searchParams.session ?? null} />
+        <h1 className="mb-6 text-3xl font-bold text-zinc-900 dark:text-white">GM combat lobby</h1>
+        <GMLobby userId={user.id} combats={combats} />
       </div>
     </PageContainer>
   );

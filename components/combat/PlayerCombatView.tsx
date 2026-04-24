@@ -31,20 +31,20 @@ export function PlayerCombatView({ userId, memberships, selectedSessionId }: Pro
   return (
     <div className="grid gap-6">
       <Card className="p-4">
-        <h2 className="mb-3 text-lg font-semibold">Join Session</h2>
+        <h2 className="mb-3 text-lg font-semibold">Join a combat</h2>
         <form className="flex flex-col gap-2 sm:flex-row" onSubmit={joinSession}>
           <input
             className="rounded border px-3 py-2"
             value={joinCode}
             onChange={(e) => setJoinCode(e.target.value)}
-            placeholder="Paste session UUID"
+            placeholder="Paste combat ID (UUID)"
           />
           <Button type="submit">Join</Button>
         </form>
       </Card>
 
       <Card className="p-4">
-        <h2 className="mb-3 text-lg font-semibold">Joined Sessions</h2>
+        <h2 className="mb-3 text-lg font-semibold">Your combats</h2>
         <div className="flex flex-wrap gap-2">
           {memberships.map((membership) => {
             const joinedSession = Array.isArray(membership.sessions)
@@ -84,7 +84,8 @@ export function PlayerCombatView({ userId, memberships, selectedSessionId }: Pro
                     <span>Init {combatant.initiative ?? 0}</span>
                   </div>
                   <div className="mt-1 text-sm">
-                    HP {combatant.hp_current}/{combatant.hp_max} | AC {combatant.armor_class}
+                    HP {combatant.hp_current}/{combatant.hp_max}
+                    {(combatant.temp_hp ?? 0) > 0 ? ` · Temp ${combatant.temp_hp}` : ""} | AC {combatant.armor_class}
                   </div>
                   <div className="mt-1 text-xs text-zinc-600">
                     Conditions: {Array.isArray(combatant.conditions) ? combatant.conditions.join(", ") || "None" : "None"}
