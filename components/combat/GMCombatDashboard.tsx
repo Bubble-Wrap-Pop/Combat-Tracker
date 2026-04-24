@@ -28,6 +28,31 @@ function clampTurnIndex(turnIndex: number, len: number): number {
   return Math.min(Math.max(0, turnIndex), len - 1);
 }
 
+/** Initiative order rotated so the current turn is first; completed turns sink toward the bottom. */
+function combatantsRotatedToCurrentTurn(combatants: Combatant[], currentTurnIndex: number): Combatant[] {
+  if (combatants.length === 0) return [];
+  const i = clampTurnIndex(currentTurnIndex, combatants.length);
+  if (i < 0) return combatants;
+  return [...combatants.slice(i), ...combatants.slice(0, i)];
+}
+
+/** Shared shell with HP readout — flat stat strip inside a pill (compact width for Init / AC). */
+const COMBAT_STAT_CHIP_BASE =
+  "flex w-fit max-w-full shrink-0 items-baseline gap-x-0.5 rounded-md border border-border/80 bg-background/50 px-2 py-1.5 text-sm tabular-nums shadow-sm ring-1 ring-black/5 dark:bg-background/30 dark:ring-white/10 sm:py-1.5 sm:pl-2 sm:pr-1.5 sm:text-[0.9375rem]";
+
+/** Init / AC: same shell, subtle focus ring when the embedded field is active. */
+const COMBAT_STAT_CHIP_EDITABLE = cn(
+  COMBAT_STAT_CHIP_BASE,
+  "cursor-text transition-[box-shadow,border-color] focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20"
+);
+
+/** Primary numbers — same treatment as current HP in the readout. */
+const COMBAT_STAT_VALUE = "font-semibold tabular-nums text-foreground";
+
+/** Editable stat value: same visual weight as HP number (controlled value shows server when idle). */
+const COMBAT_STAT_CHIP_INPUT =
+  "ml-0.5 min-w-[2ch] max-w-[3.25rem] flex-none border-0 bg-transparent p-0 text-sm font-semibold tabular-nums text-foreground shadow-none outline-none ring-0 focus-visible:ring-0 sm:max-w-[3.5rem]";
+
 /** Row tint: temp HP overrides full-HP green; 0 HP is red when no temp. */
 function rowBackgroundClass(c: Combatant): string {
   if ((c.temp_hp ?? 0) > 0) return "bg-sky-500/10";
@@ -44,9 +69,15 @@ export function GMCombatDashboard({ sessionId }: Props) {
   const [maxHp, setMaxHp] = useState(10);
   const [addCount, setAddCount] = useState(1);
   const [addInitiative, setAddInitiative] = useState(0);
+  const [addAc, setAddAc] = useState(10);
 
   const activeRowIndex = session ? clampTurnIndex(session.current_turn_index, combatants.length) : -1;
   const activeCombatant = activeRowIndex >= 0 ? combatants[activeRowIndex] : null;
+
+  const combatantsInTurnOrder = useMemo(() => {
+    if (!session || combatants.length === 0) return [];
+    return combatantsRotatedToCurrentTurn(combatants, session.current_turn_index);
+  }, [combatants, session]);
 
   const addCreatures = useCallback(
     async (e: FormEvent) => {
@@ -57,6 +88,7 @@ export function GMCombatDashboard({ sessionId }: Props) {
       const hp = Math.max(0, Math.floor(Number(maxHp)) || 0);
       const count = Math.max(1, Math.floor(Number(addCount)) || 1);
       const initRoll = Number.isFinite(Number(addInitiative)) ? Math.trunc(Number(addInitiative)) : 0;
+      const acVal = Math.max(0, Math.floor(Number(addAc)) || 0);
       if (hp <= 0) return;
 
       const rows = Array.from({ length: count }, (_, i) => ({
@@ -66,7 +98,7 @@ export function GMCombatDashboard({ sessionId }: Props) {
         hp_current: hp,
         temp_hp: 0,
         initiative: initRoll,
-        armor_class: 10,
+        armor_class: acVal,
         is_player: false,
         conditions: [] as string[],
         revealed_traits: [] as string[],
@@ -82,8 +114,9 @@ export function GMCombatDashboard({ sessionId }: Props) {
       setCreatureName("");
       setMaxHp(10);
       setAddCount(1);
+      setAddAc(10);
     },
-    [addCount, addInitiative, creatureName, maxHp, session?.id, supabase]
+    [addAc, addCount, addInitiative, creatureName, maxHp, reload, session?.id, supabase]
   );
 
   async function advanceTurn() {
@@ -114,10 +147,11 @@ export function GMCombatDashboard({ sessionId }: Props) {
     void reload();
   }, [reload, session, supabase]);
 
-  const removeCombatantAt = useCallback(
-    async (removedIndex: number) => {
+  const removeCombatantById = useCallback(
+    async (combatantId: string) => {
       if (!session) return;
-      if (removedIndex < 0 || removedIndex >= combatants.length) return;
+      const removedIndex = combatants.findIndex((c) => c.id === combatantId);
+      if (removedIndex < 0) return;
       const removed = combatants[removedIndex];
       if (!globalThis.confirm(`Remove “${removed.name}” from this combat?`)) return;
 
@@ -179,7 +213,7 @@ export function GMCombatDashboard({ sessionId }: Props) {
                         · <span className="font-medium text-foreground">{activeCombatant.name}</span>
                         {" "}
                         <span className="text-muted-foreground">
-                          (init {activeCombatant.initiative ?? 0})
+                          (init {activeCombatant.initiative ?? 0}, AC {activeCombatant.armor_class})
                         </span>
                       </>
                     ) : null}
@@ -246,6 +280,18 @@ export function GMCombatDashboard({ sessionId }: Props) {
               />
             </div>
             <div className="w-full sm:w-24">
+              <label htmlFor="gm-ac" className="mb-1 block text-xs font-medium text-muted-foreground">
+                AC
+              </label>
+              <Input
+                id="gm-ac"
+                type="number"
+                min={0}
+                value={addAc}
+                onChange={(e) => setAddAc(Number(e.target.value))}
+              />
+            </div>
+            <div className="w-full sm:w-24">
               <label htmlFor="gm-count" className="mb-1 block text-xs font-medium text-muted-foreground">
                 Count
               </label>
@@ -270,17 +316,17 @@ export function GMCombatDashboard({ sessionId }: Props) {
           {combatants.length === 0 ? (
             <p className="text-sm text-muted-foreground">No combatants yet.</p>
           ) : (
-            combatants.map((combatant, index) => (
+            combatantsInTurnOrder.map((combatant, index) => (
               <CombatantRow
                 key={combatant.id}
                 combatant={combatant}
                 session={session}
                 activeTurnCombatantId={activeCombatant?.id ?? null}
-                isActiveTurn={index === activeRowIndex}
+                isActiveTurn={index === 0}
                 rowClassName={rowBackgroundClass(combatant)}
                 supabase={supabase}
                 reload={reload}
-                onRemoveFromCombat={() => void removeCombatantAt(index)}
+                onRemoveFromCombat={() => void removeCombatantById(combatant.id)}
               />
             ))
           )}
@@ -320,7 +366,16 @@ function CombatantRow({
   const [heal, setHeal] = useState("");
   const [temp, setTemp] = useState("");
   const [initiative, setInitiative] = useState("");
+  const [initFocused, setInitFocused] = useState(false);
+  const [armorClass, setArmorClass] = useState("");
+  const [acFocused, setAcFocused] = useState(false);
   const [tempHpExact, setTempHpExact] = useState(false);
+
+  const serverInitDisplay = combatant.initiative == null ? "—" : String(combatant.initiative);
+  const initiativeInputValue = initFocused ? initiative : serverInitDisplay;
+
+  const serverAcDisplay = String(combatant.armor_class);
+  const acInputValue = acFocused ? armorClass : serverAcDisplay;
 
   const applyDamageAction = async (raw: string) => {
     const t = raw.trim();
@@ -384,7 +439,7 @@ function CombatantRow({
 
   const applyInitiativeAction = async (raw: string) => {
     const t = raw.trim();
-    if (t === "") return;
+    if (t === "" || t === "—") return;
     const initiativeVal = Math.trunc(Number(t));
     if (!Number.isFinite(initiativeVal)) {
       setInitiative("");
@@ -417,6 +472,36 @@ function CombatantRow({
     void reload();
   };
 
+  const applyArmorClassAction = async (raw: string) => {
+    const t = raw.trim();
+    if (t === "") return;
+    const parsed = Number(t);
+    if (!Number.isFinite(parsed)) {
+      setArmorClass("");
+      return;
+    }
+    const acVal = Math.max(0, Math.floor(parsed));
+    if (acVal === combatant.armor_class) {
+      setArmorClass("");
+      return;
+    }
+    const { data, error } = await supabase
+      .from("combatants")
+      .update({ armor_class: acVal })
+      .eq("id", combatant.id)
+      .select("id");
+    if (error) {
+      console.error("Update combatant AC:", error);
+      return;
+    }
+    if (!data?.length) {
+      console.error("Update combatant AC: no row updated (check session access / RLS).");
+      return;
+    }
+    setArmorClass("");
+    void reload();
+  };
+
   const applyTempAction = async (raw: string) => {
     const trimmed = raw.trim();
     if (trimmed === "") return;
@@ -445,79 +530,118 @@ function CombatantRow({
     void reload();
   };
 
-  const fieldClass = "w-[4.5rem] shrink-0 sm:w-20";
+  /** Slightly narrower than before — horizontal only; height matches default inputs. */
+  const fieldClass = "w-[3.75rem] shrink-0 sm:w-[4.25rem]";
   const tempHpPool = combatant.temp_hp ?? 0;
 
   return (
     <div
       className={cn(
-        "flex flex-row flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border p-3 sm:flex-nowrap sm:gap-x-4 sm:py-2.5",
+        "motion-safe:transition-[box-shadow,transform,opacity] motion-safe:duration-500 motion-safe:ease-out flex flex-row flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border p-3 sm:flex-nowrap sm:gap-x-4 sm:py-2.5",
         rowClassName,
-        isActiveTurn && "ring-2 ring-primary ring-offset-2 ring-offset-background"
+        isActiveTurn && "ring-2 ring-primary ring-offset-2 ring-offset-background z-[1]"
       )}
     >
       <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-x-2 sm:gap-x-4">
-        <div className="w-[3.25rem] shrink-0 sm:w-14">
-          <label className="mb-1 block text-xs text-muted-foreground">Init</label>
-          <Input
-            type="number"
-            value={initiative}
+        <div
+          className={COMBAT_STAT_CHIP_EDITABLE}
+          title="Initiative — click to edit, Enter or click away to save"
+          aria-label={`Initiative for ${combatant.name}`}
+        >
+          <span className="shrink-0 text-xs font-medium uppercase tracking-wider text-muted-foreground">Init:</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            value={initiativeInputValue}
             onChange={(e) => setInitiative(e.target.value)}
-            onBlur={(e) => void applyInitiativeAction(e.target.value)}
+            onFocus={() => {
+              setInitFocused(true);
+              setInitiative(combatant.initiative == null ? "" : String(combatant.initiative));
+            }}
+            onBlur={(e) => {
+              void applyInitiativeAction(e.target.value);
+              setInitFocused(false);
+              setInitiative("");
+            }}
             onKeyDown={enterToCommit}
-            placeholder={combatant.initiative == null ? "—" : String(combatant.initiative)}
-            className="h-9 tabular-nums"
+            className={COMBAT_STAT_CHIP_INPUT}
           />
         </div>
-        <div className="w-36 shrink-0 sm:w-48">
+        <div className="w-28 shrink-0 sm:w-32">
           <p className="truncate text-sm font-semibold leading-tight tracking-tight text-foreground sm:text-[0.95rem]">
             {combatant.name}
           </p>
         </div>
         <div
-          className="flex shrink-0 items-baseline gap-x-0.5 rounded-md border border-border/80 bg-background/50 px-2.5 py-1.5 text-sm tabular-nums shadow-sm ring-1 ring-black/5 dark:bg-background/30 dark:ring-white/10 sm:px-3 sm:text-[0.9375rem]"
+          className={COMBAT_STAT_CHIP_BASE}
           aria-label={`Hit points ${combatant.hp_current} of ${combatant.hp_max}${tempHpPool > 0 ? `, ${tempHpPool} temporary` : ""}`}
         >
-          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">HP</span>
-          <span className="ml-2 font-semibold text-foreground">{combatant.hp_current}</span>
+          <span className="shrink-0 text-xs font-medium uppercase tracking-wider text-muted-foreground">HP:</span>
+          <span className={cn(COMBAT_STAT_VALUE, "ml-1 text-sm")}>{combatant.hp_current}</span>
           {tempHpPool > 0 ? (
-            <span className="font-semibold text-sky-600 dark:text-sky-400">+{tempHpPool}</span>
+            <span className={cn(COMBAT_STAT_VALUE, "text-sm text-sky-600 dark:text-sky-400")}>+{tempHpPool}</span>
           ) : null}
           <span className="text-muted-foreground">
             {" "}
             / {combatant.hp_max}
           </span>
         </div>
+        <div
+          className={COMBAT_STAT_CHIP_EDITABLE}
+          title="Armor class — click to edit, Enter or click away to save"
+          aria-label={`Armor class for ${combatant.name}`}
+        >
+          <span className="shrink-0 text-xs font-medium uppercase tracking-wider text-muted-foreground">AC:</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            value={acInputValue}
+            onChange={(e) => setArmorClass(e.target.value)}
+            onFocus={() => {
+              setAcFocused(true);
+              setArmorClass(String(combatant.armor_class));
+            }}
+            onBlur={(e) => {
+              void applyArmorClassAction(e.target.value);
+              setAcFocused(false);
+              setArmorClass("");
+            }}
+            onKeyDown={enterToCommit}
+            className={COMBAT_STAT_CHIP_INPUT}
+          />
+        </div>
       </div>
       <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 sm:flex-nowrap sm:gap-x-3">
-        <div className="flex flex-wrap items-end justify-end gap-x-3 gap-y-1 sm:flex-nowrap sm:gap-x-4">
+        <div className="flex flex-wrap items-end justify-end gap-x-2 gap-y-1 sm:flex-nowrap sm:gap-x-3">
           <div className={fieldClass}>
           <label className="mb-1 block text-xs text-muted-foreground">Damage</label>
           <Input
-            type="number"
-            min={0}
+            type="text"
+            inputMode="numeric"
             value={damage}
             onChange={(e) => setDamage(e.target.value)}
             onBlur={(e) => void applyDamageAction(e.target.value)}
             onKeyDown={enterToCommit}
             placeholder="—"
-            className="h-9"
+            className="h-9 px-2 text-sm"
           />
           </div>
           <div className={fieldClass}>
           <label className="mb-1 block text-xs text-muted-foreground">Heal</label>
           <Input
-            type="number"
-            min={0}
+            type="text"
+            inputMode="numeric"
             value={heal}
             onChange={(e) => setHeal(e.target.value)}
             onBlur={(e) => void applyHealAction(e.target.value)}
             onKeyDown={enterToCommit}
             placeholder="—"
-            className="h-9"
+            className="h-9 px-2 text-sm"
           />
           </div>
-          <div className="w-[5.75rem] shrink-0 sm:w-[6.25rem]">
+          <div className="w-[5.25rem] shrink-0 sm:w-[5.75rem]">
           <div className="mb-1 flex items-center justify-between gap-1">
             <span className="text-xs text-muted-foreground">Temp HP</span>
             <label
@@ -534,14 +658,14 @@ function CombatantRow({
             </label>
           </div>
           <Input
-            type="number"
-            min={0}
+            type="text"
+            inputMode="numeric"
             value={temp}
             onChange={(e) => setTemp(e.target.value)}
             onBlur={(e) => void applyTempAction(e.target.value)}
             onKeyDown={enterToCommit}
             placeholder="—"
-            className="h-9"
+            className="h-9 px-2 text-sm"
           />
           </div>
         </div>
