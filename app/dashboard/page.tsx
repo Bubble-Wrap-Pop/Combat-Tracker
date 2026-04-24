@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { createSupabaseServerClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import { PageContainer } from '@/components/ui/PageGradientContainer'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/card'
 
 export default async function DashboardPage() {

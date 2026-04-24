@@ -2,7 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/card";
 import { useCombatSession } from "@/components/combat/useCombatSession";
 import { createSupabaseClient } from "@/utils/supabase/client";
