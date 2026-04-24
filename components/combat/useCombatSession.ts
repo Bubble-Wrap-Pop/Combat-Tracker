@@ -25,7 +25,8 @@ export function useCombatSession(sessionId: string | null) {
         .select("*")
         .eq("session_id", sessionId)
         .order("initiative", { ascending: false })
-        .order("created_at", { ascending: true }),
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true }),
     ]);
 
     setSession(sessionData ?? null);

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useMemo, useState } from "react";
+import { FormEvent, useCallback, useMemo, useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { getNextTurnState } from "@/lib/combat";
 import {
   applyDamage,
   applyHeal,
+  applyTempHpOverride,
   applyTempHpRule,
   shouldDeleteMinionAtZero,
 } from "@/lib/combatHealth";
@@ -199,10 +200,10 @@ export function GMCombatDashboard({ sessionId }: Props) {
               <CombatantRow
                 key={combatant.id}
                 combatant={combatant}
-                displayIndex={index + 1}
                 isActiveTurn={index === activeRowIndex}
                 rowClassName={rowBackgroundClass(combatant)}
                 supabase={supabase}
+                reload={reload}
               />
             ))
           )}
@@ -212,120 +213,205 @@ export function GMCombatDashboard({ sessionId }: Props) {
   );
 }
 
+function enterToCommit(e: KeyboardEvent<HTMLInputElement>) {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    e.currentTarget.blur();
+  }
+}
+
 function CombatantRow({
   combatant,
-  displayIndex,
   isActiveTurn,
   rowClassName,
   supabase,
+  reload,
 }: {
   combatant: Combatant;
-  displayIndex: number;
   isActiveTurn: boolean;
   rowClassName: string;
   supabase: ReturnType<typeof createSupabaseClient>;
+  reload: () => Promise<void>;
 }) {
   const [damage, setDamage] = useState("");
   const [heal, setHeal] = useState("");
   const [temp, setTemp] = useState("");
+  const [tempHpExact, setTempHpExact] = useState(false);
 
-  const applyDamageAction = async () => {
-    const amt = Math.max(0, Math.floor(Number(damage)) || 0);
-    if (amt <= 0) return;
+  const applyDamageAction = async (raw: string) => {
+    const t = raw.trim();
+    if (t === "") return;
+    const amt = Math.max(0, Math.floor(Number(t)) || 0);
+    if (amt <= 0) {
+      setDamage("");
+      return;
+    }
     const { hp_current, temp_hp } = applyDamage(combatant.hp_current, combatant.temp_hp ?? 0, amt);
     if (shouldDeleteMinionAtZero(hp_current, combatant.name)) {
-      await supabase.from("combatants").delete().eq("id", combatant.id);
+      const { error } = await supabase.from("combatants").delete().eq("id", combatant.id);
+      if (error) {
+        console.error("Delete combatant:", error);
+        return;
+      }
     } else {
-      await supabase.from("combatants").update({ hp_current, temp_hp }).eq("id", combatant.id);
+      const { data, error } = await supabase
+        .from("combatants")
+        .update({ hp_current, temp_hp })
+        .eq("id", combatant.id)
+        .select("id");
+      if (error) {
+        console.error("Update combatant HP:", error);
+        return;
+      }
+      if (!data?.length) {
+        console.error("Update combatant HP: no row updated (check session access / RLS).");
+        return;
+      }
     }
     setDamage("");
+    void reload();
   };
 
-  const applyHealAction = async () => {
-    const amt = Math.max(0, Math.floor(Number(heal)) || 0);
-    if (amt <= 0) return;
+  const applyHealAction = async (raw: string) => {
+    const t = raw.trim();
+    if (t === "") return;
+    const amt = Math.max(0, Math.floor(Number(t)) || 0);
+    if (amt <= 0) {
+      setHeal("");
+      return;
+    }
     const hp_current = applyHeal(combatant.hp_current, combatant.hp_max, amt);
-    await supabase.from("combatants").update({ hp_current }).eq("id", combatant.id);
+    const { data, error } = await supabase
+      .from("combatants")
+      .update({ hp_current })
+      .eq("id", combatant.id)
+      .select("id");
+    if (error) {
+      console.error("Update combatant heal:", error);
+      return;
+    }
+    if (!data?.length) {
+      console.error("Update combatant heal: no row updated (check session access / RLS).");
+      return;
+    }
     setHeal("");
+    void reload();
   };
 
-  const applyTempAction = async () => {
-    const amt = Math.max(0, Math.floor(Number(temp)) || 0);
-    const temp_hp = applyTempHpRule(combatant.temp_hp ?? 0, amt);
-    await supabase.from("combatants").update({ temp_hp }).eq("id", combatant.id);
+  const applyTempAction = async (raw: string) => {
+    const trimmed = raw.trim();
+    if (trimmed === "") return;
+    const amt = Math.max(0, Math.floor(Number(trimmed)) || 0);
+    const temp_hp = tempHpExact
+      ? applyTempHpOverride(amt)
+      : applyTempHpRule(combatant.temp_hp ?? 0, amt);
+    if (temp_hp === (combatant.temp_hp ?? 0)) {
+      setTemp("");
+      return;
+    }
+    const { data, error } = await supabase
+      .from("combatants")
+      .update({ temp_hp })
+      .eq("id", combatant.id)
+      .select("id");
+    if (error) {
+      console.error("Update combatant temp HP:", error);
+      return;
+    }
+    if (!data?.length) {
+      console.error("Update combatant temp HP: no row updated (check session access / RLS).");
+      return;
+    }
     setTemp("");
+    void reload();
   };
+
+  const fieldClass = "w-[4.5rem] shrink-0 sm:w-20";
+  const tempHpPool = combatant.temp_hp ?? 0;
 
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:gap-4",
+        "flex flex-row flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border p-3 sm:flex-nowrap sm:gap-x-4 sm:py-2.5",
         rowClassName,
         isActiveTurn && "ring-2 ring-primary ring-offset-2 ring-offset-background"
       )}
     >
-      <div className="min-w-0 shrink-0 sm:w-40">
-        <div className="font-medium text-foreground">
-          #{displayIndex} {combatant.name}
+      <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-x-3 sm:gap-x-4">
+        <div className="w-36 shrink-0 sm:w-48">
+          <p className="truncate text-sm font-semibold leading-tight tracking-tight text-foreground sm:text-[0.95rem]">
+            {combatant.name}
+          </p>
         </div>
-      </div>
-      <div className="flex shrink-0 flex-col gap-0.5 text-sm sm:flex-1">
-        <div>
-          HP{" "}
-          <span className="font-medium">
-            {combatant.hp_current} / {combatant.hp_max}
+        <div
+          className="flex shrink-0 items-baseline gap-x-0.5 rounded-md border border-border/80 bg-background/50 px-2.5 py-1.5 text-sm tabular-nums shadow-sm ring-1 ring-black/5 dark:bg-background/30 dark:ring-white/10 sm:px-3 sm:text-[0.9375rem]"
+          aria-label={`Hit points ${combatant.hp_current} of ${combatant.hp_max}${tempHpPool > 0 ? `, ${tempHpPool} temporary` : ""}`}
+        >
+          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">HP</span>
+          <span className="ml-2 font-semibold text-foreground">{combatant.hp_current}</span>
+          {tempHpPool > 0 ? (
+            <span className="font-semibold text-sky-600 dark:text-sky-400">+{tempHpPool}</span>
+          ) : null}
+          <span className="text-muted-foreground">
+            {" "}
+            / {combatant.hp_max}
           </span>
         </div>
-        <div className="text-muted-foreground">
-          Temp HP: <span className="font-medium text-foreground">{combatant.temp_hp}</span>
-        </div>
       </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-end">
-        <form
-          className="flex flex-wrap items-end gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void applyDamageAction();
-          }}
-        >
-          <div className="w-24">
-            <label className="mb-1 block text-xs text-muted-foreground">Damage</label>
-            <Input type="number" min={0} value={damage} onChange={(e) => setDamage(e.target.value)} placeholder="0" />
+      <div className="flex min-w-0 shrink-0 flex-wrap items-end justify-end gap-x-3 gap-y-1 sm:flex-nowrap sm:gap-x-4">
+        <div className={fieldClass}>
+          <label className="mb-1 block text-xs text-muted-foreground">Damage</label>
+          <Input
+            type="number"
+            min={0}
+            value={damage}
+            onChange={(e) => setDamage(e.target.value)}
+            onBlur={(e) => void applyDamageAction(e.target.value)}
+            onKeyDown={enterToCommit}
+            placeholder="—"
+            className="h-9"
+          />
+        </div>
+        <div className={fieldClass}>
+          <label className="mb-1 block text-xs text-muted-foreground">Heal</label>
+          <Input
+            type="number"
+            min={0}
+            value={heal}
+            onChange={(e) => setHeal(e.target.value)}
+            onBlur={(e) => void applyHealAction(e.target.value)}
+            onKeyDown={enterToCommit}
+            placeholder="—"
+            className="h-9"
+          />
+        </div>
+        <div className="w-[5.75rem] shrink-0 sm:w-[6.25rem]">
+          <div className="mb-1 flex items-center justify-between gap-1">
+            <span className="text-xs text-muted-foreground">Temp HP</span>
+            <label
+              className="flex cursor-pointer items-center gap-1 text-[0.65rem] leading-none text-muted-foreground"
+              title="Set temp HP to this number even if lower than the current pool"
+            >
+              <input
+                type="checkbox"
+                checked={tempHpExact}
+                onChange={(e) => setTempHpExact(e.target.checked)}
+                className="border-input text-primary focus-visible:ring-ring h-3 w-3 shrink-0 rounded border accent-primary focus-visible:outline-none focus-visible:ring-1"
+              />
+              <span className="select-none">Exact</span>
+            </label>
           </div>
-          <Button type="submit" size="sm" variant="outline">
-            Apply
-          </Button>
-        </form>
-        <form
-          className="flex flex-wrap items-end gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void applyHealAction();
-          }}
-        >
-          <div className="w-24">
-            <label className="mb-1 block text-xs text-muted-foreground">Heal</label>
-            <Input type="number" min={0} value={heal} onChange={(e) => setHeal(e.target.value)} placeholder="0" />
-          </div>
-          <Button type="submit" size="sm" variant="outline">
-            Apply
-          </Button>
-        </form>
-        <form
-          className="flex flex-wrap items-end gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void applyTempAction();
-          }}
-        >
-          <div className="w-24">
-            <label className="mb-1 block text-xs text-muted-foreground">Temp HP</label>
-            <Input type="number" min={0} value={temp} onChange={(e) => setTemp(e.target.value)} placeholder="0" />
-          </div>
-          <Button type="submit" size="sm" variant="outline">
-            Set
-          </Button>
-        </form>
+          <Input
+            type="number"
+            min={0}
+            value={temp}
+            onChange={(e) => setTemp(e.target.value)}
+            onBlur={(e) => void applyTempAction(e.target.value)}
+            onKeyDown={enterToCommit}
+            placeholder="—"
+            className="h-9"
+          />
+        </div>
       </div>
     </div>
   );

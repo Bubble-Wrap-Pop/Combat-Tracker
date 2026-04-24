@@ -13,6 +13,11 @@ export function applyTempHpRule(existingTemp: number, enteredValue: number): num
   return Math.max(existingTemp, Math.max(0, enteredValue))
 }
 
+/** Set temp HP to exactly this value (≥ 0), even when lower than the current pool. */
+export function applyTempHpOverride(enteredValue: number): number {
+  return Math.max(0, enteredValue)
+}
+
 /** Damage applies to temp HP first; overflow reduces current HP (not below 0). */
 export function applyDamage(
   hpCurrent: number,

@@ -1,6 +1,7 @@
 import {
   applyDamage,
   applyHeal,
+  applyTempHpOverride,
   applyTempHpRule,
   isMinionName,
   shouldDeleteMinionAtZero,
@@ -34,6 +35,14 @@ describe("applyTempHpRule", () => {
   it("takes max of existing and new", () => {
     expect(applyTempHpRule(5, 3)).toBe(5)
     expect(applyTempHpRule(3, 8)).toBe(8)
+  })
+})
+
+describe("applyTempHpOverride", () => {
+  it("sets exactly and floors at zero", () => {
+    expect(applyTempHpOverride(4)).toBe(4)
+    expect(applyTempHpOverride(0)).toBe(0)
+    expect(applyTempHpOverride(-2)).toBe(0)
   })
 })
 
