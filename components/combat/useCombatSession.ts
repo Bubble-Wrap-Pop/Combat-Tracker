@@ -4,17 +4,22 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createSupabaseClient } from "@/utils/supabase/client";
 import type { CombatSession, Combatant } from "@/components/combat/types";
 
+export type CombatSessionSnapshot = {
+  session: CombatSession | null;
+  combatants: Combatant[];
+};
+
 export function useCombatSession(sessionId: string | null) {
   const supabase = useMemo(() => createSupabaseClient(), []);
   const [session, setSession] = useState<CombatSession | null>(null);
   const [combatants, setCombatants] = useState<Combatant[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<CombatSessionSnapshot | undefined> => {
     if (!sessionId) {
       setSession(null);
       setCombatants([]);
-      return;
+      return undefined;
     }
 
     setLoading(true);
@@ -29,9 +34,12 @@ export function useCombatSession(sessionId: string | null) {
         .order("id", { ascending: true }),
     ]);
 
-    setSession(sessionData ?? null);
-    setCombatants(combatantData ?? []);
+    const session = (sessionData ?? null) as CombatSession | null;
+    const combatants = (combatantData ?? []) as Combatant[];
+    setSession(session);
+    setCombatants(combatants);
     setLoading(false);
+    return { session, combatants };
   }, [sessionId, supabase]);
 
   useEffect(() => {
