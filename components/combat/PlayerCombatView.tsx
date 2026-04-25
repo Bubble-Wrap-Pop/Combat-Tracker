@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { useCombatSession } from "@/components/combat/useCombatSession";
 import type { CombatSession } from "@/components/combat/types";
 import { createSupabaseClient } from "@/utils/supabase/client";
+import { conditionKey, normalizeConditions } from "@/lib/combatConditions";
 
 type Props = {
   userId: string;
@@ -89,6 +90,7 @@ export function PlayerCombatView({ userId, memberships, selectedSessionId }: Pro
             <AnimatePresence initial={false} mode="popLayout">
               {combatants.map((combatant, index) => {
                 const isCurrent = index === session.current_turn_index;
+                const conditions = normalizeConditions(combatant.conditions);
                 return (
                   <motion.div
                     key={combatant.id}
@@ -114,8 +116,24 @@ export function PlayerCombatView({ userId, memberships, selectedSessionId }: Pro
                       HP {combatant.hp_current}/{combatant.hp_max}
                       {(combatant.temp_hp ?? 0) > 0 ? ` · Temp ${combatant.temp_hp}` : ""} | AC {combatant.armor_class}
                     </div>
-                    <div className="mt-1 text-xs text-zinc-600">
-                      Conditions: {Array.isArray(combatant.conditions) ? combatant.conditions.join(", ") || "None" : "None"}
+                    <div className="mt-2">
+                      <p className="mb-1 text-[0.65rem] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                        Conditions
+                      </p>
+                      {conditions.length === 0 ? (
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400">None</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {conditions.map((c) => (
+                            <span
+                              key={conditionKey(c)}
+                              className="rounded-md border border-zinc-300 bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-800 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+                            >
+                              {c}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </motion.div>
                 );
