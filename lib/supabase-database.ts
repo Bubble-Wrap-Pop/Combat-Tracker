@@ -71,6 +71,8 @@ export type Database = {
           temp_hp: number;
           armor_class: number;
           is_player: boolean | null;
+          auto_delete_exempt: boolean;
+          resources: Json | null;
           conditions: Json | null;
           revealed_traits: Json | null;
           created_at: string;
@@ -85,6 +87,8 @@ export type Database = {
           temp_hp?: number;
           armor_class: number;
           is_player?: boolean | null;
+          auto_delete_exempt?: boolean;
+          resources?: Json | null;
           conditions?: Json | null;
           revealed_traits?: Json | null;
           created_at?: string;
@@ -99,6 +103,8 @@ export type Database = {
           temp_hp?: number;
           armor_class?: number;
           is_player?: boolean | null;
+          auto_delete_exempt?: boolean;
+          resources?: Json | null;
           conditions?: Json | null;
           revealed_traits?: Json | null;
           created_at?: string;

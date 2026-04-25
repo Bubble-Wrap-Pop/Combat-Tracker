@@ -22,7 +22,7 @@ import {
   applyHeal,
   applyTempHpOverride,
   applyTempHpRule,
-  shouldDeleteMinionAtZero,
+  isMinionName,
 } from "@/lib/combatHealth";
 import {
   conditionKey,
@@ -30,6 +30,15 @@ import {
   SUGGESTED_COMBAT_CONDITIONS,
   toggleSuggestedCondition,
 } from "@/lib/combatConditions";
+import {
+  applyLongRestRecharge,
+  applyShortRestRecharge,
+  normalizeResources,
+  removeResource,
+  upsertResource,
+  type CombatResource,
+  type ResourceRechargePolicy,
+} from "@/lib/combatResources";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
@@ -38,6 +47,7 @@ type Props = {
 };
 
 type CombatToolsTabId = "turn-order" | "add-creatures" | "settings";
+type AutoDeleteMode = "multiples" | "all_non_players" | "none";
 
 const COMBAT_TOOLS_TABS: { id: CombatToolsTabId; label: string }[] = [
   { id: "turn-order", label: "Turn order" },
@@ -45,7 +55,15 @@ const COMBAT_TOOLS_TABS: { id: CombatToolsTabId; label: string }[] = [
   { id: "settings", label: "Settings" },
 ];
 
+const RESOURCE_RECHARGE_OPTIONS: { value: ResourceRechargePolicy; label: string }[] = [
+  { value: "short_rest", label: "Short Rest" },
+  { value: "long_rest", label: "Long Rest" },
+  { value: "manual", label: "Manual" },
+];
+const CONCENTRATION_LABEL = "Concentrating";
+
 const SHOW_TEMP_HP_STORAGE_KEY = "combat-tracker-gm-show-temp-hp";
+const AUTO_DELETE_MODE_STORAGE_KEY = "combat-tracker-gm-auto-delete-mode";
 
 const COMBAT_LIST_LAYOUT_SPRING = { type: "spring" as const, stiffness: 420, damping: 34, mass: 0.85 };
 
@@ -177,6 +195,13 @@ function rowBackgroundClass(c: Combatant): string {
   return "bg-muted/30";
 }
 
+function shouldAutoDeleteAtZero(c: Combatant, mode: AutoDeleteMode): boolean {
+  if (c.auto_delete_exempt) return false;
+  if (mode === "none") return false;
+  if (mode === "all_non_players") return !c.is_player;
+  return isMinionName(c.name);
+}
+
 export function GMCombatDashboard({ sessionId }: Props) {
   const supabase = useMemo(() => createSupabaseClient(), []);
   const { session, combatants, loading, reload } = useCombatSession(sessionId);
@@ -189,6 +214,7 @@ export function GMCombatDashboard({ sessionId }: Props) {
   const [addAc, setAddAc] = useState(10);
   const [combatToolsTab, setCombatToolsTab] = useState<CombatToolsTabId>("turn-order");
   const [showTempHpControls, setShowTempHpControls] = useState(true);
+  const [autoDeleteMode, setAutoDeleteMode] = useState<AutoDeleteMode>("multiples");
 
   useEffect(() => {
     try {
@@ -199,10 +225,30 @@ export function GMCombatDashboard({ sessionId }: Props) {
     }
   }, []);
 
+  useEffect(() => {
+    try {
+      const raw = globalThis.localStorage?.getItem(AUTO_DELETE_MODE_STORAGE_KEY);
+      if (raw === "multiples" || raw === "all_non_players" || raw === "none") {
+        setAutoDeleteMode(raw);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const persistShowTempHpControls = useCallback((next: boolean) => {
     setShowTempHpControls(next);
     try {
       globalThis.localStorage?.setItem(SHOW_TEMP_HP_STORAGE_KEY, next ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const persistAutoDeleteMode = useCallback((next: AutoDeleteMode) => {
+    setAutoDeleteMode(next);
+    try {
+      globalThis.localStorage?.setItem(AUTO_DELETE_MODE_STORAGE_KEY, next);
     } catch {
       // ignore
     }
@@ -237,6 +283,8 @@ export function GMCombatDashboard({ sessionId }: Props) {
         initiative: initRoll,
         armor_class: acVal,
         is_player: false,
+        auto_delete_exempt: false,
+        resources: [] as CombatResource[],
         conditions: [] as string[],
         revealed_traits: [] as string[],
       }));
@@ -550,6 +598,22 @@ export function GMCombatDashboard({ sessionId }: Props) {
                       </span>
                     </span>
                   </label>
+                  <div className="mt-3 border-t border-border/70 pt-3">
+                    <label className="mb-1 block text-foreground text-sm font-medium">Auto-delete at 0 HP</label>
+                    <p className="text-muted-foreground mb-2 text-xs">
+                      Choose which combatants are removed automatically when they drop to 0 HP.
+                    </p>
+                    <select
+                      value={autoDeleteMode}
+                      onChange={(e) => persistAutoDeleteMode(e.target.value as AutoDeleteMode)}
+                      className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+                      aria-label="Auto-delete behavior"
+                    >
+                      <option value="multiples">Multiples only (e.g. Goblin (2))</option>
+                      <option value="all_non_players">All non-players</option>
+                      <option value="none">None</option>
+                    </select>
+                  </div>
                 </motion.div>
               </motion.div>
             ) : null}
@@ -591,6 +655,7 @@ export function GMCombatDashboard({ sessionId }: Props) {
                     isActiveTurn={index === 0}
                     rowClassName={rowBackgroundClass(combatant)}
                     showTempHpControls={showTempHpControls}
+                    autoDeleteMode={autoDeleteMode}
                     reduceMotion={reduceMotion}
                     supabase={supabase}
                     reload={reload}
@@ -620,6 +685,7 @@ function CombatantRow({
   isActiveTurn,
   rowClassName,
   showTempHpControls,
+  autoDeleteMode,
   reduceMotion,
   supabase,
   reload,
@@ -630,6 +696,7 @@ function CombatantRow({
   isActiveTurn: boolean;
   rowClassName: string;
   showTempHpControls: boolean;
+  autoDeleteMode: AutoDeleteMode;
   reduceMotion: boolean | null;
   supabase: ReturnType<typeof createSupabaseClient>;
   reload: () => Promise<CombatSessionSnapshot | undefined>;
@@ -647,11 +714,27 @@ function CombatantRow({
   const [editHpCurrent, setEditHpCurrent] = useState("");
   const [editHpMax, setEditHpMax] = useState("");
   const [conditionInput, setConditionInput] = useState("");
+  const [showResourcesPanel, setShowResourcesPanel] = useState(false);
+  const [resourcesEditMode, setResourcesEditMode] = useState(false);
+  const [resourceNameInput, setResourceNameInput] = useState("");
+  const [resourceMaxInput, setResourceMaxInput] = useState("");
+  const [resourceRechargeInput, setResourceRechargeInput] = useState<ResourceRechargePolicy>("manual");
 
   const conditions = useMemo(() => normalizeConditions(combatant.conditions), [combatant.conditions]);
+  const resources = useMemo(() => normalizeResources(combatant.resources), [combatant.resources]);
+  const isConcentrating = useMemo(
+    () => conditions.some((x) => conditionKey(x) === conditionKey(CONCENTRATION_LABEL)),
+    [conditions]
+  );
+  const visibleConditions = useMemo(
+    () => conditions.filter((x) => conditionKey(x) !== conditionKey(CONCENTRATION_LABEL)),
+    [conditions]
+  );
 
   useEffect(() => {
     setEditingBasics(false);
+    setShowResourcesPanel(false);
+    setResourcesEditMode(false);
   }, [combatant.id]);
 
   const cancelBasicsEdit = useCallback(() => {
@@ -685,7 +768,7 @@ function CombatantRow({
       return;
     }
     const { hp_current, temp_hp } = applyDamage(combatant.hp_current, combatant.temp_hp ?? 0, amt);
-    if (shouldDeleteMinionAtZero(hp_current, combatant.name)) {
+    if (hp_current === 0 && shouldAutoDeleteAtZero(combatant, autoDeleteMode)) {
       const { error } = await supabase.from("combatants").delete().eq("id", combatant.id);
       if (error) {
         console.error("Delete combatant:", error);
@@ -707,6 +790,10 @@ function CombatantRow({
       }
     }
     setDamage("");
+    if (isConcentrating && amt > 0 && hp_current > 0) {
+      const dc = Math.max(10, Math.floor(amt / 2));
+      globalThis.alert(`Concentration check needed for ${combatant.name}: DC ${dc}`);
+    }
     void reload();
   };
 
@@ -845,6 +932,27 @@ function CombatantRow({
     [combatant.id, reload, supabase]
   );
 
+  const persistResources = useCallback(
+    async (next: CombatResource[]) => {
+      const normalized = normalizeResources(next);
+      const { data, error } = await supabase
+        .from("combatants")
+        .update({ resources: normalized })
+        .eq("id", combatant.id)
+        .select("id");
+      if (error) {
+        console.error("Update combatant resources:", error);
+        return;
+      }
+      if (!data?.length) {
+        console.error("Update combatant resources: no row updated (check session access / RLS).");
+        return;
+      }
+      void reload();
+    },
+    [combatant.id, reload, supabase]
+  );
+
   const addConditionFromInput = useCallback(async () => {
     const t = conditionInput.trim();
     if (!t) return;
@@ -854,10 +962,39 @@ function CombatantRow({
     await persistConditions(merged);
   }, [conditionInput, conditions, persistConditions]);
 
+  const toggleConcentration = useCallback(async () => {
+    const isOn = conditions.some((x) => conditionKey(x) === conditionKey(CONCENTRATION_LABEL));
+    if (isOn) {
+      await persistConditions(conditions.filter((x) => conditionKey(x) !== conditionKey(CONCENTRATION_LABEL)));
+      return;
+    }
+    await persistConditions([...conditions, CONCENTRATION_LABEL]);
+  }, [conditions, persistConditions]);
+
+  const addResourceFromInput = useCallback(async () => {
+    const name = resourceNameInput.trim();
+    if (!name) return;
+    const parsedMax = Math.max(0, Math.floor(Number(resourceMaxInput)) || 0);
+    const resource: CombatResource = {
+      id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      name,
+      current: parsedMax,
+      max: parsedMax,
+      recharge: resourceRechargeInput,
+    };
+    const next = upsertResource(resources, resource);
+    setResourceNameInput("");
+    setResourceMaxInput("");
+    setResourceRechargeInput("manual");
+    await persistResources(next);
+  }, [persistResources, resourceMaxInput, resourceNameInput, resourceRechargeInput, resources]);
+
   /** Slightly narrower than before — horizontal only; height matches default inputs. */
   const fieldClass = "w-[3.75rem] shrink-0 sm:w-[4.25rem]";
   const tempHpPool = combatant.temp_hp ?? 0;
   const initRead = combatant.initiative == null ? "—" : String(combatant.initiative);
+  const statusCount = visibleConditions.length;
+  const resourceCount = resources.length;
   const chipStatInputClass =
     "ml-1 h-8 w-[4rem] shrink-0 border-0 bg-transparent px-1 py-0 text-sm font-semibold tabular-nums text-foreground shadow-none ring-0 focus-visible:ring-2 focus-visible:ring-primary/35 sm:w-[4.25rem]";
 
@@ -866,11 +1003,12 @@ function CombatantRow({
       layout
       transition={{ layout: reduceMotion ? { duration: 0 } : COMBAT_LIST_LAYOUT_SPRING }}
       className={cn(
-        "motion-safe:transition-[box-shadow,background-color] motion-safe:duration-300 motion-safe:ease-out flex flex-row flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border p-3 sm:flex-nowrap sm:gap-x-4 sm:py-2.5",
+        "motion-safe:transition-[box-shadow,background-color] motion-safe:duration-300 motion-safe:ease-out flex flex-col gap-2 rounded-lg border border-border p-3 sm:py-2.5",
         rowClassName,
         isActiveTurn && "ring-2 ring-primary ring-offset-2 ring-offset-background z-[1]"
       )}
     >
+      <div className="flex flex-row flex-wrap items-center gap-x-3 gap-y-2 sm:flex-nowrap sm:gap-x-4">
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={editingBasics ? "basics-edit" : "basics-read"}
@@ -1037,6 +1175,30 @@ function CombatantRow({
           </AnimatePresence>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="border-border text-muted-foreground hover:bg-muted/50 h-8 gap-1 px-2 text-xs font-medium"
+            disabled={editingBasics}
+            aria-expanded={showResourcesPanel}
+            aria-label={`Resources for ${combatant.name}`}
+            onClick={() => {
+              setShowResourcesPanel((prev) => {
+                const next = !prev;
+                if (!next) setResourcesEditMode(false);
+                return next;
+              });
+            }}
+          >
+            <span className="hidden sm:inline">Resources</span>
+            <span className="sm:hidden">Res</span>
+            {resourceCount > 0 ? (
+              <span className="bg-primary/15 text-primary ml-0.5 min-w-[1.125rem] rounded-full px-1 py-px text-center text-[0.65rem] font-semibold tabular-nums leading-none">
+                {resourceCount}
+              </span>
+            ) : null}
+          </Button>
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
               <Button
@@ -1049,9 +1211,9 @@ function CombatantRow({
               >
                 <Tag className="h-3.5 w-3.5 shrink-0" aria-hidden />
                 <span className="hidden sm:inline">Status</span>
-                {conditions.length > 0 ? (
+                {statusCount > 0 ? (
                   <span className="bg-primary/15 text-primary ml-0.5 min-w-[1.125rem] rounded-full px-1 py-px text-center text-[0.65rem] font-semibold tabular-nums leading-none">
-                    {conditions.length}
+                    {statusCount}
                   </span>
                 ) : null}
               </Button>
@@ -1071,10 +1233,10 @@ function CombatantRow({
                   <div>
                     <p className="text-muted-foreground mb-1.5 text-xs font-medium">Active</p>
                     <div className="flex flex-wrap gap-1.5">
-                      {conditions.length === 0 ? (
+                      {visibleConditions.length === 0 ? (
                         <p className="text-muted-foreground text-xs leading-snug">None — pick Quick toggles or add a custom label.</p>
                       ) : (
-                        conditions.map((c) => (
+                        visibleConditions.map((c) => (
                           <span
                             key={conditionKey(c)}
                             className="border-border bg-muted/50 text-foreground inline-flex max-w-full items-center gap-0.5 rounded-md border px-2 py-1 text-xs font-medium"
@@ -1148,13 +1310,13 @@ function CombatantRow({
                       })}
                     </div>
                   </div>
-                  {conditions.length > 0 ? (
+                  {visibleConditions.length > 0 ? (
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
                       className="text-destructive hover:text-destructive h-8 w-full text-xs"
-                      onClick={() => void persistConditions([])}
+                      onClick={() => void persistConditions(conditions.filter((x) => conditionKey(x) === conditionKey(CONCENTRATION_LABEL)))}
                     >
                       Clear all conditions
                     </Button>
@@ -1164,6 +1326,21 @@ function CombatantRow({
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={cn(
+              "border-border text-muted-foreground hover:bg-muted/50 h-8 gap-1 px-2 text-xs font-medium",
+              isConcentrating && "border-zinc-300 bg-white text-black hover:bg-zinc-100 dark:bg-zinc-100 dark:text-black"
+            )}
+            disabled={editingBasics}
+            onClick={() => void toggleConcentration()}
+            aria-label={`Toggle concentration for ${combatant.name}`}
+            title="Toggle concentration"
+          >
+            ◈
+          </Button>
           <AnimatePresence mode="popLayout" initial={false}>
             {editingBasics ? (
               <motion.div
@@ -1235,6 +1412,27 @@ function CombatantRow({
                   className="border-border bg-background text-foreground z-50 min-w-[11rem] overflow-hidden rounded-md border p-1 shadow-md"
                   {...getDropdownSurfaceMotionProps(reduceMotion)}
                 >
+                  {autoDeleteMode !== "none" &&
+                  (shouldAutoDeleteAtZero(combatant, autoDeleteMode) || combatant.auto_delete_exempt) ? (
+                    <DropdownMenu.Item
+                      className="data-[highlighted]:bg-muted flex cursor-pointer select-none items-center rounded-sm px-2 py-2 text-sm outline-none"
+                      onSelect={() => {
+                        void supabase
+                          .from("combatants")
+                          .update({ auto_delete_exempt: !combatant.auto_delete_exempt })
+                          .eq("id", combatant.id)
+                          .then(({ error }) => {
+                            if (error) {
+                              console.error("Toggle auto-delete exclusion:", error);
+                              return;
+                            }
+                            void reload();
+                          });
+                      }}
+                    >
+                      {combatant.auto_delete_exempt ? "Include in auto delete" : "Exclude from auto delete"}
+                    </DropdownMenu.Item>
+                  ) : null}
                   <DropdownMenu.Item
                     className="text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive flex cursor-pointer select-none items-center rounded-sm px-2 py-2 text-sm outline-none"
                     onSelect={() => {
@@ -1249,6 +1447,221 @@ function CombatantRow({
           </DropdownMenu.Root>
         </div>
       </div>
+      </div>
+
+      {visibleConditions.length > 0 ? (
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <span className="text-muted-foreground text-[0.65rem] font-medium uppercase tracking-wide">Active status:</span>
+          {visibleConditions.map((c) => (
+            <span
+              key={conditionKey(c)}
+              className="border-border bg-muted/55 text-foreground inline-flex max-w-full items-center rounded-md border px-2 py-0.5 text-xs font-medium"
+            >
+              <span className="max-w-[11rem] truncate">{c}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      <AnimatePresence initial={false}>
+        {showResourcesPanel ? (
+          <motion.div
+            key="resources-panel"
+            layout
+            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={reduceMotion ? { opacity: 0, transition: { duration: 0.08 } } : { opacity: 0, y: -6, transition: { duration: 0.16 } }}
+            transition={reduceMotion ? { duration: 0 } : { opacity: { duration: 0.18 }, y: TAB_SPRING, layout: TAB_SPRING }}
+            className="border-border/70 bg-muted/20 min-w-0 rounded-md border p-2"
+          >
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-muted-foreground text-xs font-medium">Resources</p>
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-[0.65rem]"
+                  onClick={() => void persistResources(applyShortRestRecharge(resources))}
+                  disabled={resources.length === 0}
+                >
+                  Short Rest
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-[0.65rem]"
+                  onClick={() => void persistResources(applyLongRestRecharge(resources))}
+                  disabled={resources.length === 0}
+                >
+                  Long Rest
+                </Button>
+                <Button
+                  type="button"
+                  variant={resourcesEditMode ? "default" : "outline"}
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => setResourcesEditMode((v) => !v)}
+                  aria-label={resourcesEditMode ? "Finish editing resources" : "Edit resources"}
+                  title={resourcesEditMode ? "Done editing resources" : "Edit resources"}
+                >
+                  {resourcesEditMode ? <Check className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              {resources.length === 0 ? (
+                <p className="text-muted-foreground text-xs leading-snug">No custom resources yet.</p>
+              ) : (
+                resources.map((r) => (
+                  <div
+                    key={r.id}
+                    onClick={() => {
+                      if (resourcesEditMode) return;
+                      if (r.current <= 0) return;
+                      const next = upsertResource(resources, { ...r, current: Math.max(0, r.current - 1) });
+                      void persistResources(next);
+                    }}
+                    className={cn(
+                      "border-border/70 bg-background/60 flex items-center gap-1.5 rounded-md border p-1.5",
+                      !resourcesEditMode && "cursor-pointer hover:bg-muted/35"
+                    )}
+                  >
+                    {resourcesEditMode ? (
+                      <Input
+                        value={r.name}
+                        onChange={(e) => {
+                          const next = upsertResource(resources, { ...r, name: e.target.value });
+                          void persistResources(next);
+                        }}
+                        className="h-7 min-w-0 flex-[1.2] text-xs"
+                        aria-label={`Resource name ${r.name}`}
+                      />
+                    ) : (
+                      <span className="min-w-0 flex-[1.2] truncate text-xs font-medium">{r.name}</span>
+                    )}
+                    <Input
+                      type="text"
+                      inputMode="numeric"
+                      value={String(r.current)}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => {
+                        const nextCurrent = Math.max(0, Math.floor(Number(e.target.value)) || 0);
+                        const next = upsertResource(resources, { ...r, current: Math.min(nextCurrent, r.max) });
+                        void persistResources(next);
+                      }}
+                      className="h-7 w-14 px-1 text-center text-xs tabular-nums"
+                      aria-label={`Current ${r.name}`}
+                    />
+                    <span className="text-muted-foreground text-xs">/</span>
+                    {resourcesEditMode ? (
+                      <Input
+                        type="text"
+                        inputMode="numeric"
+                        value={String(r.max)}
+                        onChange={(e) => {
+                          const nextMax = Math.max(0, Math.floor(Number(e.target.value)) || 0);
+                          const next = upsertResource(resources, {
+                            ...r,
+                            max: nextMax,
+                            current: Math.min(r.current, nextMax),
+                          });
+                          void persistResources(next);
+                        }}
+                        className="h-7 w-14 px-1 text-center text-xs tabular-nums"
+                        aria-label={`Max ${r.name}`}
+                      />
+                    ) : (
+                      <span className="text-muted-foreground w-14 text-center text-xs tabular-nums">{r.max}</span>
+                    )}
+                    {resourcesEditMode ? (
+                      <select
+                        value={r.recharge}
+                        onChange={(e) => {
+                          const next = upsertResource(resources, {
+                            ...r,
+                            recharge: e.target.value as ResourceRechargePolicy,
+                          });
+                          void persistResources(next);
+                        }}
+                        className="border-input bg-background h-7 min-w-0 rounded-md border px-1.5 text-[0.65rem]"
+                        aria-label={`Recharge policy ${r.name}`}
+                      >
+                        {RESOURCE_RECHARGE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-muted-foreground min-w-[4.5rem] text-[0.65rem]">
+                        {RESOURCE_RECHARGE_OPTIONS.find((x) => x.value === r.recharge)?.label ?? "Manual"}
+                      </span>
+                    )}
+                    {resourcesEditMode ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="text-muted-foreground hover:text-destructive h-6 w-6 shrink-0"
+                        aria-label={`Remove resource ${r.name}`}
+                        onClick={() => void persistResources(removeResource(resources, r.id))}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    ) : null}
+                  </div>
+                ))
+              )}
+            </div>
+            {resourcesEditMode ? (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <Input
+                  value={resourceNameInput}
+                  onChange={(e) => setResourceNameInput(e.target.value)}
+                  placeholder="Resource name"
+                  className="h-8 min-w-0 flex-1 text-xs"
+                  aria-label="New resource name"
+                />
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  value={resourceMaxInput}
+                  onChange={(e) => setResourceMaxInput(e.target.value)}
+                  placeholder="Max"
+                  className="h-8 w-14 px-1 text-center text-xs tabular-nums"
+                  aria-label="New resource max"
+                />
+                <select
+                  value={resourceRechargeInput}
+                  onChange={(e) => setResourceRechargeInput(e.target.value as ResourceRechargePolicy)}
+                  className="border-input bg-background h-8 min-w-0 rounded-md border px-1.5 text-[0.7rem]"
+                  aria-label="New resource recharge policy"
+                >
+                  {RESOURCE_RECHARGE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="h-8 shrink-0 px-2.5 text-xs"
+                  disabled={!resourceNameInput.trim()}
+                  onClick={() => void addResourceFromInput()}
+                >
+                  Add
+                </Button>
+              </div>
+            ) : (
+              <p className="text-muted-foreground mt-1.5 text-[0.7rem]">Tip: click a resource row to spend 1 use.</p>
+            )}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </motion.div>
   );
 }

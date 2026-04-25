@@ -29,6 +29,8 @@ create table public.combatants (
   temp_hp integer not null default 0,
   armor_class integer not null,
   is_player boolean default false,
+  auto_delete_exempt boolean not null default false,
+  resources jsonb default '[]'::jsonb,
   conditions jsonb default '[]'::jsonb,
   revealed_traits jsonb default '[]'::jsonb,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null

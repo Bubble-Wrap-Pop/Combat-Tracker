@@ -19,6 +19,8 @@ export type Combatant = {
   temp_hp: number;
   armor_class: number;
   is_player: boolean | null;
+  auto_delete_exempt: boolean;
+  resources: unknown;
   conditions: unknown;
   revealed_traits: unknown;
   created_at: string;
