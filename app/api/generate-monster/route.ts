@@ -16,7 +16,7 @@ function randomIntInclusive(min: number, max: number): number {
  * ---------------------------------------------------------------------------
  * FUTURE: Vercel AI SDK `generateObject` (or similar) integration point
  * ---------------------------------------------------------------------------
- * Replace the mock logic below (delay + random name + random maxHp) with:
+ * Replace the mock logic below (delay + random stats) with:
  *
  *   import { generateObject } from "ai";
  *   import { openai } from "@ai-sdk/openai"; // or your provider
@@ -24,11 +24,21 @@ function randomIntInclusive(min: number, max: number): number {
  *
  *   const { object } = await generateObject({
  *     model: openai("gpt-4o-mini"),
- *     schema: z.object({ name: z.string(), maxHp: z.number().min(1).max(999) }),
+ *     schema: z.object({
+ *       name: z.string(),
+ *       maxHp: z.number().min(1).max(999),
+ *       initiative: z.number(),
+ *       ac: z.number().min(0),
+ *     }),
  *     prompt: "...",
  *   });
  *
- * Then return NextResponse.json({ name: object.name, maxHp: object.maxHp }).
+ * Then return NextResponse.json({
+ *   name: object.name,
+ *   maxHp: object.maxHp,
+ *   initiative: object.initiative,
+ *   ac: object.ac,
+ * }).
  * Keep this route as POST-only if the SDK call stays server-side.
  * ---------------------------------------------------------------------------
  */
@@ -37,6 +47,8 @@ export async function POST() {
 
   const name = MOCK_NAMES[Math.floor(Math.random() * MOCK_NAMES.length)]!;
   const maxHp = randomIntInclusive(20, 100);
+  const initiative = randomIntInclusive(1, 20);
+  const ac = randomIntInclusive(10, 22);
 
-  return NextResponse.json({ name, maxHp });
+  return NextResponse.json({ name, maxHp, initiative, ac });
 }

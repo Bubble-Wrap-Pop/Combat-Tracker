@@ -322,7 +322,6 @@ export function GMCombatDashboard({ sessionId }: Props) {
       if (error) {
         console.error("Insert error:", error);
       } else {
-        setCombatToolsTab("turn-order");
         void reload();
       }
       setCreatureName("");
@@ -342,10 +341,10 @@ export function GMCombatDashboard({ sessionId }: Props) {
         console.error("Generate monster API:", await res.text());
         return;
       }
-      const data = (await res.json()) as { name: string; maxHp: number };
+      const data = (await res.json()) as { name: string; maxHp: number; initiative: number; ac: number };
       const hp = Math.max(1, Math.floor(Number(data.maxHp)) || 1);
-      const initRoll = Number.isFinite(Number(addInitiative)) ? Math.trunc(Number(addInitiative)) : 0;
-      const acVal = Math.max(0, Math.floor(Number(addAc)) || 0);
+      const initRoll = Number.isFinite(Number(data.initiative)) ? Math.trunc(Number(data.initiative)) : 0;
+      const acVal = Math.max(0, Math.floor(Number(data.ac)) || 0);
       const trimmedName = typeof data.name === "string" ? data.name.trim() : "";
       if (!trimmedName) {
         console.error("Generate monster: empty name in response");
@@ -374,14 +373,13 @@ export function GMCombatDashboard({ sessionId }: Props) {
         console.error("Insert generated monster:", error);
         return;
       }
-      setCombatToolsTab("turn-order");
       void reload();
     } catch (err) {
       console.error("Generate random monster:", err);
     } finally {
       setGenerateMonsterLoading(false);
     }
-  }, [addAc, addInitiative, reload, session, supabase]);
+  }, [reload, session, supabase]);
 
   async function advanceTurn() {
     if (!session || combatants.length === 0) return;
