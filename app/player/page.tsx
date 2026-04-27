@@ -5,10 +5,7 @@ import { createSupabaseServerClient } from "@/utils/supabase/server";
 import { PageContainer } from "@/components/ui/PageGradientContainer";
 import { PlayerCombatView } from "@/components/combat/PlayerCombatView";
 
-type SearchParams = Promise<{ session?: string }>;
-
-export default async function PlayerPage(props: { searchParams: SearchParams }) {
-  const searchParams = await props.searchParams;
+export default async function PlayerPage() {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -28,7 +25,6 @@ export default async function PlayerPage(props: { searchParams: SearchParams }) 
         <PlayerCombatView
           userId={user.id}
           memberships={memberships ?? []}
-          selectedSessionId={searchParams.session ?? null}
         />
       </div>
     </PageContainer>

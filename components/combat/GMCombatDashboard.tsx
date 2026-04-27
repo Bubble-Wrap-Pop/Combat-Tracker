@@ -204,7 +204,7 @@ function shouldAutoDeleteAtZero(c: Combatant, mode: AutoDeleteMode): boolean {
 
 export function GMCombatDashboard({ sessionId }: Props) {
   const supabase = useMemo(() => createSupabaseClient(), []);
-  const { session, combatants, loading, reload } = useCombatSession(sessionId);
+  const { session, combatants, loading, realtimeStatus, reload } = useCombatSession(sessionId);
   const reduceMotion = useReducedMotion();
 
   const [creatureName, setCreatureName] = useState("");
@@ -215,6 +215,7 @@ export function GMCombatDashboard({ sessionId }: Props) {
   const [combatToolsTab, setCombatToolsTab] = useState<CombatToolsTabId>("turn-order");
   const [showTempHpControls, setShowTempHpControls] = useState(true);
   const [autoDeleteMode, setAutoDeleteMode] = useState<AutoDeleteMode>("multiples");
+  const [inviteCopied, setInviteCopied] = useState(false);
 
   useEffect(() => {
     try {
@@ -256,6 +257,20 @@ export function GMCombatDashboard({ sessionId }: Props) {
 
   const activeRowIndex = session ? clampTurnIndex(session.current_turn_index, combatants.length) : -1;
   const activeCombatant = activeRowIndex >= 0 ? combatants[activeRowIndex] : null;
+  const inviteLink =
+    typeof globalThis.window === "undefined"
+      ? `/player/sessions/${sessionId}`
+      : `${globalThis.window.location.origin}/player/sessions/${sessionId}`;
+
+  const copyInviteLink = useCallback(async () => {
+    try {
+      await globalThis.navigator?.clipboard?.writeText(inviteLink);
+      setInviteCopied(true);
+      globalThis.setTimeout(() => setInviteCopied(false), 1600);
+    } catch {
+      // ignore clipboard errors
+    }
+  }, [inviteLink]);
 
   const combatantsInTurnOrder = useMemo(() => {
     if (!session || combatants.length === 0) return [];
@@ -282,7 +297,9 @@ export function GMCombatDashboard({ sessionId }: Props) {
         temp_hp: 0,
         initiative: initRoll,
         armor_class: acVal,
+        ac_visible_to_players: false,
         is_player: false,
+        owner_player_id: null,
         auto_delete_exempt: false,
         resources: [] as CombatResource[],
         conditions: [] as string[],
@@ -480,17 +497,34 @@ export function GMCombatDashboard({ sessionId }: Props) {
                           >
                             {activeCombatant.name}
                           </motion.span>{" "}
-                          <span className="text-muted-foreground">
-                            (init {activeCombatant.initiative ?? 0}, AC {activeCombatant.armor_class})
-                          </span>
+                          <span className="text-muted-foreground">(init {activeCombatant.initiative ?? 0})</span>
                         </>
                       ) : null}
                     </>
                   ) : (
                     <span> · Add combatants to track turns (use the Add creatures tab).</span>
                   )}
-                  {loading ? <span className="ml-2 text-xs">(syncing…)</span> : null}
+                  <span
+                    className={cn(
+                      "ml-2 inline-flex items-center rounded-full border px-2 py-0.5 text-[0.65rem] font-medium uppercase tracking-wide",
+                      realtimeStatus === "live"
+                        ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700/80 dark:bg-emerald-950/40 dark:text-emerald-300"
+                        : "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700/80 dark:bg-amber-950/40 dark:text-amber-300"
+                    )}
+                  >
+                    {realtimeStatus === "live" ? "Live" : "Reconnecting"}
+                  </span>
+                  {loading ? <span className="ml-2 text-xs">(syncing...)</span> : null}
                 </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="text-muted-foreground text-xs">Invite:</span>
+                  <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => void copyInviteLink()}>
+                    {inviteCopied ? "Copied" : "Copy player link"}
+                  </Button>
+                  <span className="text-muted-foreground rounded-md border border-border/70 bg-muted/20 px-2 py-0.5 text-[0.7rem]">
+                    Combat ID: {sessionId}
+                  </span>
+                </div>
               </motion.div>
             ) : null}
             {combatToolsTab === "add-creatures" ? (
@@ -578,27 +612,29 @@ export function GMCombatDashboard({ sessionId }: Props) {
                 {...getTabPanelMotionProps(reduceMotion)}
               >
                 <motion.div
-                  className="border-border/80 bg-muted/20 max-w-md rounded-lg border px-3 py-3"
+                  className="space-y-3 max-w-md"
                   initial={reduceMotion ? false : { opacity: 0, scale: 0.98 }}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={reduceMotion ? { duration: 0 } : { delay: 0.04, duration: 0.22, ease: [0.25, 0.1, 0.25, 1] }}
                 >
-                  <label className="flex cursor-pointer items-start gap-3 text-sm leading-snug">
-                    <input
-                      type="checkbox"
-                      checked={showTempHpControls}
-                      onChange={(e) => persistShowTempHpControls(e.target.checked)}
-                      className="border-input text-primary focus-visible:ring-ring mt-0.5 h-4 w-4 shrink-0 rounded border accent-primary focus-visible:outline-none focus-visible:ring-2"
-                    />
-                    <span>
-                      <span className="text-foreground font-medium">Show Temp HP controls</span>
-                      <span className="text-muted-foreground mt-0.5 block text-xs">
-                        When off, the Temp HP field and Exact option are hidden on every combatant row. Pool values still
-                        appear in the HP chip when present.
+                  <div className="border-border/80 bg-muted/20 rounded-lg border px-3 py-3">
+                    <label className="flex cursor-pointer items-start gap-3 text-sm leading-snug">
+                      <input
+                        type="checkbox"
+                        checked={showTempHpControls}
+                        onChange={(e) => persistShowTempHpControls(e.target.checked)}
+                        className="border-input text-primary focus-visible:ring-ring mt-0.5 h-4 w-4 shrink-0 rounded border accent-primary focus-visible:outline-none focus-visible:ring-2"
+                      />
+                      <span>
+                        <span className="text-foreground font-medium">Show Temp HP controls</span>
+                        <span className="text-muted-foreground mt-0.5 block text-xs">
+                          When off, the Temp HP field and Exact option are hidden on every combatant row. Pool values still
+                          appear in the HP chip when present.
+                        </span>
                       </span>
-                    </span>
-                  </label>
-                  <div className="mt-3 border-t border-border/70 pt-3">
+                    </label>
+                  </div>
+                  <div className="border-border/80 bg-muted/20 rounded-lg border px-3 py-3">
                     <label className="mb-1 block text-foreground text-sm font-medium">Auto-delete at 0 HP</label>
                     <p className="text-muted-foreground mb-2 text-xs">
                       Choose which combatants are removed automatically when they drop to 0 HP.
@@ -1008,11 +1044,11 @@ function CombatantRow({
         isActiveTurn && "ring-2 ring-primary ring-offset-2 ring-offset-background z-[1]"
       )}
     >
-      <div className="flex flex-row flex-wrap items-center gap-x-3 gap-y-2 sm:flex-nowrap sm:gap-x-4">
+      <div className="flex flex-row flex-wrap items-center gap-x-3 gap-y-2 lg:flex-nowrap lg:gap-x-4">
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={editingBasics ? "basics-edit" : "basics-read"}
-          className="flex min-w-0 flex-1 flex-nowrap items-center gap-x-2 sm:gap-x-4"
+          className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 md:flex-nowrap md:gap-x-4"
           {...getBasicsStripMotionProps(reduceMotion, editingBasics ? "edit" : "read")}
         >
           {editingBasics ? (
@@ -1027,7 +1063,7 @@ function CombatantRow({
                   className={chipStatInputClass}
                 />
               </div>
-              <div className="min-w-0 max-w-[11rem] shrink sm:max-w-[13rem]">
+            <div className="min-w-0 flex-1 md:max-w-[13rem]">
                 <Input
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
@@ -1078,8 +1114,8 @@ function CombatantRow({
                 <span className="shrink-0 text-xs font-medium uppercase tracking-wider text-muted-foreground">Init:</span>
                 <span className={cn(COMBAT_STAT_VALUE, "ml-1 text-sm")}>{initRead}</span>
               </div>
-              <div className="w-28 shrink-0 sm:w-32">
-                <p className="truncate text-sm font-semibold leading-tight tracking-tight text-foreground sm:text-[0.95rem]">
+            <div className="min-w-0 basis-full md:w-32 md:basis-auto md:flex-none md:shrink-0">
+                <p className="text-sm font-semibold leading-tight tracking-tight text-foreground md:truncate sm:text-[0.95rem]">
                   {combatant.name}
                 </p>
               </div>
@@ -1105,8 +1141,8 @@ function CombatantRow({
           )}
         </motion.div>
       </AnimatePresence>
-      <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 sm:flex-nowrap sm:gap-x-3">
-        <div className="flex flex-wrap items-end justify-end gap-x-2 gap-y-1 sm:flex-nowrap sm:gap-x-3">
+      <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 md:flex-nowrap md:gap-x-3">
+        <div className="flex flex-wrap items-end justify-end gap-x-2 gap-y-1 md:flex-nowrap md:gap-x-3">
           <div className={fieldClass}>
           <label className="mb-1 block text-xs text-muted-foreground">Damage</label>
           <Input
@@ -1433,6 +1469,26 @@ function CombatantRow({
                       {combatant.auto_delete_exempt ? "Include in auto delete" : "Exclude from auto delete"}
                     </DropdownMenu.Item>
                   ) : null}
+                  {combatant.is_player ? null : (
+                    <DropdownMenu.Item
+                      className="data-[highlighted]:bg-muted flex cursor-pointer select-none items-center rounded-sm px-2 py-2 text-sm outline-none"
+                      onSelect={() => {
+                        void supabase
+                          .from("combatants")
+                          .update({ ac_visible_to_players: !combatant.ac_visible_to_players })
+                          .eq("id", combatant.id)
+                          .then(({ error }) => {
+                            if (error) {
+                              console.error("Toggle AC visibility:", error);
+                              return;
+                            }
+                            void reload();
+                          });
+                      }}
+                    >
+                      {combatant.ac_visible_to_players ? "Hide AC from players" : "Show AC to players"}
+                    </DropdownMenu.Item>
+                  )}
                   <DropdownMenu.Item
                     className="text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive flex cursor-pointer select-none items-center rounded-sm px-2 py-2 text-sm outline-none"
                     onSelect={() => {

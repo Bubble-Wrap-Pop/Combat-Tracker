@@ -31,6 +31,7 @@ export type Database = {
         Row: {
           id: string;
           game_master_id: string;
+          campaign_id: string | null;
           name: string;
           combat_status: string;
           current_round: number;
@@ -41,6 +42,7 @@ export type Database = {
         Insert: {
           id?: string;
           game_master_id: string;
+          campaign_id?: string | null;
           name: string;
           combat_status?: string;
           current_round?: number;
@@ -51,11 +53,33 @@ export type Database = {
         Update: {
           id?: string;
           game_master_id?: string;
+          campaign_id?: string | null;
           name?: string;
           combat_status?: string;
           current_round?: number;
           current_turn_index?: number;
           is_active?: boolean | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      campaigns: {
+        Row: {
+          id: string;
+          game_master_id: string;
+          name: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          game_master_id: string;
+          name: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          game_master_id?: string;
+          name?: string;
           created_at?: string;
         };
         Relationships: [];
@@ -70,7 +94,9 @@ export type Database = {
           hp_max: number;
           temp_hp: number;
           armor_class: number;
+          ac_visible_to_players: boolean;
           is_player: boolean | null;
+          owner_player_id: string | null;
           auto_delete_exempt: boolean;
           resources: Json | null;
           conditions: Json | null;
@@ -86,7 +112,9 @@ export type Database = {
           hp_max: number;
           temp_hp?: number;
           armor_class: number;
+          ac_visible_to_players?: boolean;
           is_player?: boolean | null;
+          owner_player_id?: string | null;
           auto_delete_exempt?: boolean;
           resources?: Json | null;
           conditions?: Json | null;
@@ -102,7 +130,9 @@ export type Database = {
           hp_max?: number;
           temp_hp?: number;
           armor_class?: number;
+          ac_visible_to_players?: boolean;
           is_player?: boolean | null;
+          owner_player_id?: string | null;
           auto_delete_exempt?: boolean;
           resources?: Json | null;
           conditions?: Json | null;

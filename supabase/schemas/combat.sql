@@ -1,6 +1,20 @@
+create table public.campaigns (
+  id uuid default gen_random_uuid() primary key,
+  game_master_id uuid references public.profiles(id) on delete cascade not null,
+  name text not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+alter table public.campaigns enable row level security;
+
+create policy "Game Masters can manage their own campaigns"
+  on public.campaigns for all
+  using (auth.uid() = game_master_id);
+
 create table public.sessions (
   id uuid default gen_random_uuid() primary key,
   game_master_id uuid references public.profiles(id) on delete cascade not null,
+  campaign_id uuid references public.campaigns(id) on delete set null,
   name text not null,
   current_round integer default 1 not null,
   current_turn_index integer default 0 not null,
@@ -28,7 +42,9 @@ create table public.combatants (
   hp_max integer not null,
   temp_hp integer not null default 0,
   armor_class integer not null,
+  ac_visible_to_players boolean not null default false,
   is_player boolean default false,
+  owner_player_id uuid references public.profiles(id) on delete set null,
   auto_delete_exempt boolean not null default false,
   resources jsonb default '[]'::jsonb,
   conditions jsonb default '[]'::jsonb,
@@ -53,6 +69,25 @@ create policy "Players can view combatants in active sessions"
       select id from public.sessions where is_active = true
     )
   );
+
+create policy "Players can add their own combatants"
+  on public.combatants for insert
+  with check (
+    owner_player_id = auth.uid()
+    and is_player = true
+    and session_id in (
+      select session_id from public.session_players where player_id = auth.uid()
+    )
+  );
+
+create policy "Players can update their own combatants"
+  on public.combatants for update
+  using (owner_player_id = auth.uid())
+  with check (owner_player_id = auth.uid());
+
+create policy "Players can remove their own combatants"
+  on public.combatants for delete
+  using (owner_player_id = auth.uid());
 
 create table public.session_players (
   id uuid default gen_random_uuid() primary key,

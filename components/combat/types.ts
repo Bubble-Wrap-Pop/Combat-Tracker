@@ -1,11 +1,19 @@
 export type CombatSession = {
   id: string;
   game_master_id: string;
+  campaign_id: string | null;
   name: string;
   current_round: number;
   current_turn_index: number;
   combat_status: string;
   is_active: boolean | null;
+  created_at: string;
+};
+
+export type Campaign = {
+  id: string;
+  game_master_id: string;
+  name: string;
   created_at: string;
 };
 
@@ -18,7 +26,9 @@ export type Combatant = {
   hp_max: number;
   temp_hp: number;
   armor_class: number;
+  ac_visible_to_players: boolean;
   is_player: boolean | null;
+  owner_player_id: string | null;
   auto_delete_exempt: boolean;
   resources: unknown;
   conditions: unknown;
