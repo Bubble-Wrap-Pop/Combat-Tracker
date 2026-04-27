@@ -17,7 +17,7 @@ export function createSupabaseServerClient() {
           cookiesToSet.forEach(({ name, value, options }) => {
             cookieStore.set(name, value, options)
           })
-        } catch (error) {
+        } catch {
           // This can be ignored if you have middleware refreshing user sessions
         }
       },

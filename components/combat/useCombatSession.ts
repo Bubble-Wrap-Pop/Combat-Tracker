@@ -11,6 +11,7 @@ export type CombatSessionSnapshot = {
 
 export type RealtimeStatus = "connecting" | "live" | "reconnecting";
 
+/** Loads `sessions` + `combatants` rows and listens to `postgres_changes` for that session (GM + joined players). */
 export function useCombatSession(sessionId: string | null) {
   const supabase = useMemo(() => createSupabaseClient(), []);
   const [session, setSession] = useState<CombatSession | null>(null);
@@ -56,7 +57,6 @@ export function useCombatSession(sessionId: string | null) {
   }, [sessionId, supabase]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 

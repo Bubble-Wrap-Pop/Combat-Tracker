@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- Node setup script */
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -6,7 +7,7 @@ function run(command) {
   try {
     console.log(`Running: ${command}`);
     execSync(command, { stdio: 'inherit' });
-  } catch (error) {
+  } catch {
     console.error(`Failed to execute: ${command}`);
     process.exit(1);
   }
@@ -22,8 +23,8 @@ let statusCheckOutput = '';
 
 try {
   statusCheckOutput = execSync('npx supabase status', { encoding: 'utf-8', stdio: 'pipe' });
-} catch (error) {
-  statusCheckOutput = error.stdout ? error.stdout.toString() : '';
+} catch (err) {
+  statusCheckOutput = err.stdout ? err.stdout.toString() : '';
 }
 
 const cleanStatusCheck = statusCheckOutput.replace(/\x1b\[[0-9;]*m/g, '');
@@ -37,7 +38,7 @@ if (!isRunning) {
   console.log('Starting Supabase... This might take a minute.');
   try {
     execSync('npx supabase start', { stdio: 'inherit' });
-  } catch (error) {
+  } catch {
     console.log('\nWarning: Container conflict detected. Cleaning up and retrying...');
     execSync('npx supabase stop', { stdio: 'inherit' });
     execSync('npx supabase start', { stdio: 'inherit' });
@@ -48,7 +49,7 @@ console.log('Extracting Supabase Credentials...');
 let statusOutput = '';
 try {
   statusOutput = execSync('npx supabase status', { encoding: 'utf-8' });
-} catch (error) {
+} catch {
   console.error('Failed to get Supabase status. Make sure Docker is running.');
   process.exit(1);
 }
@@ -98,7 +99,7 @@ if (apiUrlMatch && anonKeyMatch) {
 console.log('Running database migrations...');
 try {
   execSync('npx supabase db reset', { stdio: 'inherit' });
-} catch (error) {
+} catch {
   console.log('Warning: Database reset failed or was interrupted.');
 }
 

@@ -14,16 +14,21 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useCombatSession, type CombatSessionSnapshot } from "@/components/combat/useCombatSession";
-import type { Combatant, CombatSession } from "@/components/combat/types";
+import type { Combatant } from "@/components/combat/types";
 import { createSupabaseClient } from "@/utils/supabase/client";
 import { getNextTurnState } from "@/lib/combat";
 import {
   applyDamage,
-  applyHeal,
   applyTempHpOverride,
   applyTempHpRule,
   isMinionName,
 } from "@/lib/combatHealth";
+import {
+  applyDamageToCombatant,
+  applyHealToCombatant,
+  deleteCombatantById,
+  persistCombatantResources,
+} from "@/lib/combatSupabase";
 import {
   conditionKey,
   normalizeConditions,
@@ -202,6 +207,7 @@ function shouldAutoDeleteAtZero(c: Combatant, mode: AutoDeleteMode): boolean {
   return isMinionName(c.name);
 }
 
+/** GM encounter tools. Live reads and HP sync use {@link useCombatSession} — Realtime on `sessions` and `combatants`. */
 export function GMCombatDashboard({ sessionId }: Props) {
   const supabase = useMemo(() => createSupabaseClient(), []);
   const { session, combatants, loading, realtimeStatus, reload } = useCombatSession(sessionId);
@@ -216,11 +222,14 @@ export function GMCombatDashboard({ sessionId }: Props) {
   const [showTempHpControls, setShowTempHpControls] = useState(true);
   const [autoDeleteMode, setAutoDeleteMode] = useState<AutoDeleteMode>("multiples");
   const [inviteCopied, setInviteCopied] = useState(false);
+  const [generateMonsterLoading, setGenerateMonsterLoading] = useState(false);
 
   useEffect(() => {
     try {
       const raw = globalThis.localStorage?.getItem(SHOW_TEMP_HP_STORAGE_KEY);
-      if (raw === "0" || raw === "false") setShowTempHpControls(false);
+      queueMicrotask(() => {
+        if (raw === "0" || raw === "false") setShowTempHpControls(false);
+      });
     } catch {
       // ignore
     }
@@ -229,9 +238,11 @@ export function GMCombatDashboard({ sessionId }: Props) {
   useEffect(() => {
     try {
       const raw = globalThis.localStorage?.getItem(AUTO_DELETE_MODE_STORAGE_KEY);
-      if (raw === "multiples" || raw === "all_non_players" || raw === "none") {
-        setAutoDeleteMode(raw);
-      }
+      queueMicrotask(() => {
+        if (raw === "multiples" || raw === "all_non_players" || raw === "none") {
+          setAutoDeleteMode(raw);
+        }
+      });
     } catch {
       // ignore
     }
@@ -319,8 +330,58 @@ export function GMCombatDashboard({ sessionId }: Props) {
       setAddCount(1);
       setAddAc(10);
     },
-    [addAc, addCount, addInitiative, creatureName, maxHp, reload, session?.id, supabase]
+    [addAc, addCount, addInitiative, creatureName, maxHp, reload, session, supabase]
   );
+
+  const generateRandomMonster = useCallback(async () => {
+    if (!session?.id) return;
+    setGenerateMonsterLoading(true);
+    try {
+      const res = await fetch("/api/generate-monster", { method: "POST" });
+      if (!res.ok) {
+        console.error("Generate monster API:", await res.text());
+        return;
+      }
+      const data = (await res.json()) as { name: string; maxHp: number };
+      const hp = Math.max(1, Math.floor(Number(data.maxHp)) || 1);
+      const initRoll = Number.isFinite(Number(addInitiative)) ? Math.trunc(Number(addInitiative)) : 0;
+      const acVal = Math.max(0, Math.floor(Number(addAc)) || 0);
+      const trimmedName = typeof data.name === "string" ? data.name.trim() : "";
+      if (!trimmedName) {
+        console.error("Generate monster: empty name in response");
+        return;
+      }
+
+      const row = {
+        session_id: session.id,
+        name: trimmedName,
+        hp_max: hp,
+        hp_current: hp,
+        temp_hp: 0,
+        initiative: initRoll,
+        armor_class: acVal,
+        ac_visible_to_players: false,
+        is_player: false,
+        owner_player_id: null,
+        auto_delete_exempt: false,
+        resources: [] as CombatResource[],
+        conditions: [] as string[],
+        revealed_traits: [] as string[],
+      };
+
+      const { error } = await supabase.from("combatants").insert(row);
+      if (error) {
+        console.error("Insert generated monster:", error);
+        return;
+      }
+      setCombatToolsTab("turn-order");
+      void reload();
+    } catch (err) {
+      console.error("Generate random monster:", err);
+    } finally {
+      setGenerateMonsterLoading(false);
+    }
+  }, [addAc, addInitiative, reload, session, supabase]);
 
   async function advanceTurn() {
     if (!session || combatants.length === 0) return;
@@ -598,7 +659,17 @@ export function GMCombatDashboard({ sessionId }: Props) {
                       onChange={(e) => setAddCount(Number(e.target.value))}
                     />
                   </div>
-                  <Button type="submit">Add creatures</Button>
+                  <div className="flex w-full flex-wrap items-end gap-2 sm:w-auto">
+                    <Button type="submit">Add creatures</Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={generateMonsterLoading}
+                      onClick={() => void generateRandomMonster()}
+                    >
+                      {generateMonsterLoading ? "Generating…" : "Generate Random Monster"}
+                    </Button>
+                  </div>
                 </form>
               </motion.div>
             ) : null}
@@ -768,9 +839,11 @@ function CombatantRow({
   );
 
   useEffect(() => {
-    setEditingBasics(false);
-    setShowResourcesPanel(false);
-    setResourcesEditMode(false);
+    queueMicrotask(() => {
+      setEditingBasics(false);
+      setShowResourcesPanel(false);
+      setResourcesEditMode(false);
+    });
   }, [combatant.id]);
 
   const cancelBasicsEdit = useCallback(() => {
@@ -803,30 +876,16 @@ function CombatantRow({
       setDamage("");
       return;
     }
-    const { hp_current, temp_hp } = applyDamage(combatant.hp_current, combatant.temp_hp ?? 0, amt);
-    if (hp_current === 0 && shouldAutoDeleteAtZero(combatant, autoDeleteMode)) {
-      const { error } = await supabase.from("combatants").delete().eq("id", combatant.id);
-      if (error) {
-        console.error("Delete combatant:", error);
-        return;
-      }
+    const projected = applyDamage(combatant.hp_current, combatant.temp_hp ?? 0, amt);
+    if (projected.hp_current === 0 && shouldAutoDeleteAtZero(combatant, autoDeleteMode)) {
+      const del = await deleteCombatantById(supabase, combatant.id);
+      if (!del.ok) return;
     } else {
-      const { data, error } = await supabase
-        .from("combatants")
-        .update({ hp_current, temp_hp })
-        .eq("id", combatant.id)
-        .select("id");
-      if (error) {
-        console.error("Update combatant HP:", error);
-        return;
-      }
-      if (!data?.length) {
-        console.error("Update combatant HP: no row updated (check session access / RLS).");
-        return;
-      }
+      const res = await applyDamageToCombatant(supabase, combatant, amt);
+      if (!res.ok) return;
     }
     setDamage("");
-    if (isConcentrating && amt > 0 && hp_current > 0) {
+    if (isConcentrating && amt > 0 && projected.hp_current > 0) {
       const dc = Math.max(10, Math.floor(amt / 2));
       globalThis.alert(`Concentration check needed for ${combatant.name}: DC ${dc}`);
     }
@@ -841,20 +900,8 @@ function CombatantRow({
       setHeal("");
       return;
     }
-    const hp_current = applyHeal(combatant.hp_current, combatant.hp_max, amt);
-    const { data, error } = await supabase
-      .from("combatants")
-      .update({ hp_current })
-      .eq("id", combatant.id)
-      .select("id");
-    if (error) {
-      console.error("Update combatant heal:", error);
-      return;
-    }
-    if (!data?.length) {
-      console.error("Update combatant heal: no row updated (check session access / RLS).");
-      return;
-    }
+    const res = await applyHealToCombatant(supabase, combatant, amt);
+    if (!res.ok) return;
     setHeal("");
     void reload();
   };
@@ -971,17 +1018,9 @@ function CombatantRow({
   const persistResources = useCallback(
     async (next: CombatResource[]) => {
       const normalized = normalizeResources(next);
-      const { data, error } = await supabase
-        .from("combatants")
-        .update({ resources: normalized })
-        .eq("id", combatant.id)
-        .select("id");
-      if (error) {
-        console.error("Update combatant resources:", error);
-        return;
-      }
-      if (!data?.length) {
-        console.error("Update combatant resources: no row updated (check session access / RLS).");
+      const res = await persistCombatantResources(supabase, combatant.id, normalized);
+      if (!res.ok) {
+        console.error("Update combatant resources:", res.error);
         return;
       }
       void reload();

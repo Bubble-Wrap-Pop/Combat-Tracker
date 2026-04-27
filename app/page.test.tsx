@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import HomePage from './page'
 
 // Mock the Supabase server client to simulate a logged-out user
-jest.mock('@/utils/supabase/server', () => ({
+jest.mock('../utils/supabase/server', () => ({
   createSupabaseServerClient: jest.fn().mockResolvedValue({
     auth: {
       getUser: jest.fn().mockResolvedValue({ data: { user: null } }),
