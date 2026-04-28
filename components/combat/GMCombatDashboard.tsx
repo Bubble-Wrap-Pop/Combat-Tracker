@@ -193,7 +193,7 @@ const COMBAT_STAT_CHIP_EDITABLE = cn(
 );
 
 /** Row tint: temp HP overrides full-HP green; 0 HP is red when no temp. */
-function rowBackgroundClass(c: Combatant): string {
+export function rowBackgroundClass(c: Combatant): string {
   if ((c.temp_hp ?? 0) > 0) return "bg-sky-500/10";
   if (c.hp_max > 0 && c.hp_current >= c.hp_max) return "bg-emerald-500/10";
   if (c.hp_current === 0) return "bg-red-500/10";
@@ -784,7 +784,7 @@ function enterToCommit(e: KeyboardEvent<HTMLInputElement>) {
   }
 }
 
-function CombatantRow({
+export function CombatantRow({
   combatant,
   activeTurnCombatantId,
   isActiveTurn,
@@ -795,6 +795,11 @@ function CombatantRow({
   supabase,
   reload,
   onRemoveFromCombat,
+  canEditCombatant = true,
+  canRemoveCombatant = true,
+  canReindexTurn = true,
+  showExtendedInfo = true,
+  showHealthAndAc = true,
 }: {
   combatant: Combatant;
   activeTurnCombatantId: string | null;
@@ -805,7 +810,12 @@ function CombatantRow({
   reduceMotion: boolean | null;
   supabase: ReturnType<typeof createSupabaseClient>;
   reload: () => Promise<CombatSessionSnapshot | undefined>;
-  onRemoveFromCombat: () => void;
+  onRemoveFromCombat?: () => void;
+  canEditCombatant?: boolean;
+  canRemoveCombatant?: boolean;
+  canReindexTurn?: boolean;
+  showExtendedInfo?: boolean;
+  showHealthAndAc?: boolean;
 }) {
   const [damage, setDamage] = useState("");
   const [heal, setHeal] = useState("");
@@ -954,7 +964,7 @@ function CombatantRow({
     }
 
     const snap = await reload();
-    if (initiativeChanged && snap?.session && activeTurnCombatantId) {
+    if (canReindexTurn && initiativeChanged && snap?.session && activeTurnCombatantId) {
       const idx = snap.combatants.findIndex((c) => c.id === activeTurnCombatantId);
       if (idx >= 0 && idx !== snap.session.current_turn_index) {
         await supabase.from("sessions").update({ current_turn_index: idx }).eq("id", snap.session.id);
@@ -1108,7 +1118,7 @@ function CombatantRow({
                   aria-label="Creature name"
                 />
               </div>
-              <div
+              {showHealthAndAc ? <div
                 className={COMBAT_STAT_CHIP_EDITABLE}
                 aria-label={`Edit hit points for ${combatant.name}`}
               >
@@ -1133,8 +1143,8 @@ function CombatantRow({
                   className={cn(chipStatInputClass, "ml-0.5")}
                   aria-label="Max HP"
                 />
-              </div>
-              <div className={COMBAT_STAT_CHIP_EDITABLE} aria-label={`Edit AC for ${combatant.name}`}>
+              </div> : null}
+              {showHealthAndAc ? <div className={COMBAT_STAT_CHIP_EDITABLE} aria-label={`Edit AC for ${combatant.name}`}>
                 <span className="shrink-0 text-xs font-medium uppercase tracking-wider text-muted-foreground">AC:</span>
                 <Input
                   type="text"
@@ -1143,7 +1153,7 @@ function CombatantRow({
                   onChange={(e) => setEditAc(e.target.value)}
                   className={chipStatInputClass}
                 />
-              </div>
+              </div> : null}
             </>
           ) : (
             <>
@@ -1156,7 +1166,7 @@ function CombatantRow({
                   {combatant.name}
                 </p>
               </div>
-              <div
+              {showHealthAndAc ? <div
                 className={COMBAT_STAT_CHIP_BASE}
                 aria-label={`Hit points ${combatant.hp_current} of ${combatant.hp_max}${tempHpPool > 0 ? `, ${tempHpPool} temporary` : ""}`}
               >
@@ -1169,15 +1179,16 @@ function CombatantRow({
                   {" "}
                   / {combatant.hp_max}
                 </span>
-              </div>
-              <div className={COMBAT_STAT_CHIP_BASE} aria-label={`Armor class for ${combatant.name}`}>
+              </div> : null}
+              {showHealthAndAc ? <div className={COMBAT_STAT_CHIP_BASE} aria-label={`Armor class for ${combatant.name}`}>
                 <span className="shrink-0 text-xs font-medium uppercase tracking-wider text-muted-foreground">AC:</span>
                 <span className={cn(COMBAT_STAT_VALUE, "ml-1 text-sm")}>{combatant.armor_class}</span>
-              </div>
+              </div> : null}
             </>
           )}
         </motion.div>
       </AnimatePresence>
+      {showExtendedInfo ? (
       <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 md:flex-nowrap md:gap-x-3">
         <div className="flex flex-wrap items-end justify-end gap-x-2 gap-y-1 md:flex-nowrap md:gap-x-3">
           <div className={fieldClass}>
@@ -1190,7 +1201,7 @@ function CombatantRow({
             onBlur={(e) => void applyDamageAction(e.target.value)}
             onKeyDown={enterToCommit}
             placeholder="—"
-            disabled={editingBasics}
+            disabled={editingBasics || !canEditCombatant}
             className="h-9 px-2 text-sm"
           />
           </div>
@@ -1204,7 +1215,7 @@ function CombatantRow({
             onBlur={(e) => void applyHealAction(e.target.value)}
             onKeyDown={enterToCommit}
             placeholder="—"
-            disabled={editingBasics}
+            disabled={editingBasics || !canEditCombatant}
             className="h-9 px-2 text-sm"
           />
           </div>
@@ -1225,7 +1236,7 @@ function CombatantRow({
                     <input
                       type="checkbox"
                       checked={tempHpExact}
-                      disabled={editingBasics}
+                      disabled={editingBasics || !canEditCombatant}
                       onChange={(e) => setTempHpExact(e.target.checked)}
                       className="border-input text-primary focus-visible:ring-ring h-3 w-3 shrink-0 rounded border accent-primary focus-visible:outline-none focus-visible:ring-1"
                     />
@@ -1240,7 +1251,7 @@ function CombatantRow({
                   onBlur={(e) => void applyTempAction(e.target.value)}
                   onKeyDown={enterToCommit}
                   placeholder="—"
-                  disabled={editingBasics}
+                  disabled={editingBasics || !canEditCombatant}
                   className="h-9 px-2 text-sm"
                 />
               </motion.div>
@@ -1253,7 +1264,7 @@ function CombatantRow({
             variant="outline"
             size="sm"
             className="border-border text-muted-foreground hover:bg-muted/50 h-8 gap-1 px-2 text-xs font-medium"
-            disabled={editingBasics}
+            disabled={editingBasics || !canEditCombatant}
             aria-expanded={showResourcesPanel}
             aria-label={`Resources for ${combatant.name}`}
             onClick={() => {
@@ -1279,7 +1290,7 @@ function CombatantRow({
                 variant="outline"
                 size="sm"
                 className="border-border text-muted-foreground hover:bg-muted/50 h-8 gap-1 px-2 text-xs font-medium"
-                disabled={editingBasics}
+                disabled={editingBasics || !canEditCombatant}
                 aria-label={`Conditions and status for ${combatant.name}`}
               >
                 <Tag className="h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -1407,7 +1418,7 @@ function CombatantRow({
               "border-border text-muted-foreground hover:bg-muted/50 h-8 gap-1 px-2 text-xs font-medium",
               isConcentrating && "border-zinc-300 bg-white text-black hover:bg-zinc-100 dark:bg-zinc-100 dark:text-black"
             )}
-            disabled={editingBasics}
+            disabled={editingBasics || !canEditCombatant}
             onClick={() => void toggleConcentration()}
             aria-label={`Toggle concentration for ${combatant.name}`}
             title="Toggle concentration"
@@ -1415,7 +1426,7 @@ function CombatantRow({
             ◈
           </Button>
           <AnimatePresence mode="popLayout" initial={false}>
-            {editingBasics ? (
+            {!canEditCombatant ? null : editingBasics ? (
               <motion.div
                 key="basics-save-cancel"
                 className="flex items-center gap-0.5"
@@ -1467,7 +1478,7 @@ function CombatantRow({
               </motion.div>
             )}
           </AnimatePresence>
-          <DropdownMenu.Root>
+          {canEditCombatant || canRemoveCombatant ? <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
               <Button
                 type="button"
@@ -1485,7 +1496,8 @@ function CombatantRow({
                   className="border-border bg-background text-foreground z-50 min-w-[11rem] overflow-hidden rounded-md border p-1 shadow-md"
                   {...getDropdownSurfaceMotionProps(reduceMotion)}
                 >
-                  {autoDeleteMode !== "none" &&
+                  {canEditCombatant &&
+                  autoDeleteMode !== "none" &&
                   (shouldAutoDeleteAtZero(combatant, autoDeleteMode) || combatant.auto_delete_exempt) ? (
                     <DropdownMenu.Item
                       className="data-[highlighted]:bg-muted flex cursor-pointer select-none items-center rounded-sm px-2 py-2 text-sm outline-none"
@@ -1506,7 +1518,7 @@ function CombatantRow({
                       {combatant.auto_delete_exempt ? "Include in auto delete" : "Exclude from auto delete"}
                     </DropdownMenu.Item>
                   ) : null}
-                  {combatant.is_player ? null : (
+                  {canEditCombatant && !combatant.is_player ? (
                     <DropdownMenu.Item
                       className="data-[highlighted]:bg-muted flex cursor-pointer select-none items-center rounded-sm px-2 py-2 text-sm outline-none"
                       onSelect={() => {
@@ -1525,24 +1537,25 @@ function CombatantRow({
                     >
                       {combatant.ac_visible_to_players ? "Hide AC from players" : "Show AC to players"}
                     </DropdownMenu.Item>
-                  )}
-                  <DropdownMenu.Item
+                  ) : null}
+                  {canRemoveCombatant ? <DropdownMenu.Item
                     className="text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive flex cursor-pointer select-none items-center rounded-sm px-2 py-2 text-sm outline-none"
                     onSelect={() => {
-                      onRemoveFromCombat();
+                      onRemoveFromCombat?.();
                     }}
                   >
                     Remove from combat
-                  </DropdownMenu.Item>
+                  </DropdownMenu.Item> : null}
                 </motion.div>
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
-          </DropdownMenu.Root>
+          </DropdownMenu.Root> : null}
         </div>
       </div>
+      ) : null}
       </div>
 
-      {visibleConditions.length > 0 ? (
+      {showExtendedInfo && visibleConditions.length > 0 ? (
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <span className="text-muted-foreground text-[0.65rem] font-medium uppercase tracking-wide">Active status:</span>
           {visibleConditions.map((c) => (
@@ -1556,7 +1569,7 @@ function CombatantRow({
         </div>
       ) : null}
 
-      <AnimatePresence initial={false}>
+      {showExtendedInfo ? <AnimatePresence initial={false}>
         {showResourcesPanel ? (
           <motion.div
             key="resources-panel"
@@ -1754,7 +1767,7 @@ function CombatantRow({
             )}
           </motion.div>
         ) : null}
-      </AnimatePresence>
+      </AnimatePresence> : null}
     </motion.div>
   );
 }
