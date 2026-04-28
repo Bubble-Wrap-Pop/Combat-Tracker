@@ -1,125 +1,140 @@
-# Next.js + Supabase Starter App
+# Combat Tracker
 
-Developed by Braden Cannon, this production ready starter application integrates Next.js with Supabase. It serves as a robust foundation for new projects, providing secure authentication, automatic user profile generation, and proper Row Level Security database policies right out of the box.
+A synchronized tabletop combat and initiative tracker built on **Next.js 16**, **React 19**, **Supabase**, and **Tailwind CSS v4**. Game masters run encounters from a GM dashboard; players join sessions, see live turn order, and edit their own characters. Row Level Security keeps data scoped to the right users.
 
-## Project Description and Purpose
-Setting up authentication and database security from scratch for every new project is time consuming. This starter template eliminates that repetitive work. It provides a pre-configured, highly secure Next.js 14 environment connected to a local Supabase instance. It includes standard features like user sign up, login, protected routing, and user profile management with avatar uploading.
+Originally extended from a Next.js + Supabase starter (auth, profiles, avatars) by Braden Cannon.
+
+## Features
+
+- **Authentication** — Email sign-up / sign-in, cookie-based sessions via `@supabase/ssr`, protected routes.
+- **Combat sessions** — GMs create sessions; `sessions` stores round, turn index, and status.
+- **Combatants** — HP (including temp HP before regular HP on damage), AC, initiative, conditions, optional JSON resources (short/long rest recharge rules).
+- **Realtime** — `useCombatSession` subscribes to Postgres changes on `sessions` and `combatants` so GM and player UIs stay in sync.
+- **Player lobby** — Join via link or ID; membership list can update over Realtime.
+- **Mock AI monster generator** — `POST /api/generate-monster` simulates a short delay and returns random name, HP, initiative, and AC; the GM dashboard can insert the result as a combatant. (Commented hook point for Vercel AI SDK `generateObject` later.)
+- **Inngest** — `POST/GET/PUT /api/inngest` registers functions. A daily cron job deletes `sessions` rows older than 24 hours using the **Supabase service role** (cascades to `combatants` and `session_players`).
 
 ## Prerequisites
-Before you begin, ensure you have the following installed on your machine:
-* Node.js (version 18 or higher)
-* npm (Node Package Manager)
-* Docker Desktop (required to run the local Supabase instance)
-* Supabase CLI
 
-## Quick Start
-The absolute fastest way to get started is by using the included setup script. This script automatically handles dependencies, starts your database, and configures your environment variables.
+- **Node.js** 18+ (LTS recommended)
+- **npm**
+- **Docker Desktop** (for local Supabase)
+- **Supabase CLI** (`npm i -g supabase` or use `npx`)
 
-1. Ensure Docker Desktop is running in the background.
-2. Open your terminal in the project directory.
-3. Run the automated setup script:
-   `node setup.js`
-4. Start the development server:
-   `npm run dev`
+## Quick start
 
-## Manual Setup Instructions
-If you prefer to understand exactly what is happening under the hood, or if the setup script fails, you can set up the project manually step by step.
+1. Start **Docker Desktop**.
+2. From the project root:
+   ```bash
+   node setup.js
+   ```
+   This installs dependencies, starts Supabase when possible, and writes `.env.local` with local API URL and anon key when discovery succeeds.
+3. Start the app:
+   ```bash
+   npm run dev
+   ```
+4. Open [http://localhost:3000](http://localhost:3000).
 
-1. Install all dependencies:
-   `npm install`
-2. Start the local Supabase container:
-   `npx supabase start`
-3. After Supabase starts, it will print your API URL and anon key to the terminal. Create a `.env.local` file in the root of your project and paste those values in:
-   `NEXT_PUBLIC_SUPABASE_URL=your_api_url_here`
-   `NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here`
-4. Apply the database schemas and migrations to your local instance:
-   `npx supabase db reset`
-5. Run the Next.js application:
-   `npm run dev`
+## Manual setup
 
-## Project Structure and Code Organization
-This project follows strict Next.js App Router conventions and isolates server logic from client interactivity.
+1. `npm install`
+2. `npx supabase start`
+3. Create **`.env.local`**:
+   ```env
+   NEXT_PUBLIC_SUPABASE_URL=<from supabase status>
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=<from supabase status>
+   ```
+4. `npx supabase db reset` (applies migrations)
+5. `npm run dev`
 
-* `/app`: Contains all of the Next.js routes, pages, and layouts. Protected routes check for active server sessions before rendering.
-* `/components/ui`: Houses reusable, stateless presentation components like buttons and cards.
-* `/components/auth`: Contains the server actions and forms responsible for the authentication flows.
-* `/components/client`: Dedicated to interactive Client Components that require React state or browser APIs, such as the Avatar selection tool. Any custom hooks or complex client side logic are encapsulated directly within these components to keep the architecture flat and simple.
-* `/utils/supabase`: Stores the utility functions for creating Supabase clients for both server environments and client environments.
-* `/supabase`: Contains the Supabase configuration, declarative SQL schemas, and sequential migration files.
+### Local Inngest dev
 
-## How to Use This Starter App for New Projects
-To use this as the base for a completely new project:
-1. Clone or download this repository to your computer.
-2. Delete the `.git` folder to remove the starter template history.
-3. Run `git init` to start a fresh repository.
-4. Run `node setup.js` to initialize your new local database.
-5. Begin modifying the pages in the `/app` directory to build your specific application.
+For the Inngest dev server to discover your app, you can set:
 
-## Environment Variables
-The application requires two specific environment variables to function properly. These connect your Next.js front end to your Supabase back end.
+```env
+INNGEST_DEV=1
+```
 
-* `NEXT_PUBLIC_SUPABASE_URL`: The API URL for your Supabase instance.
-* `NEXT_PUBLIC_SUPABASE_ANON_KEY`: The public anonymous key used to safely query the database from the browser.
+Run the [Inngest CLI dev command](https://www.inngest.com/docs/local-development) alongside `npm run dev` when testing scheduled functions locally.
 
-## Database Schema Overview
-The database relies on a declarative schema located in `supabase/schemas/profiles.sql`. 
+## Scripts
 
-The primary table is `profiles`. It contains the following columns:
-* `id`: A UUID that directly references the primary key in the protected `auth.users` table.
-* `email`: The user email address.
-* `full_name`: An optional text field for the user name.
-* `avatar_url`: An optional text field pointing to the user profile image stored in Supabase Storage.
-* `updated_at`: A timestamp that updates automatically.
+| Command | Description |
+|--------|-------------|
+| `npm run dev` | Next.js dev server |
+| `npm run build` | Production build |
+| `npm run start` | Run production server |
+| `npm run lint` | ESLint (`eslint .` + Next config) |
+| `npm run test` | Jest test suite |
+| `npm run test:watch` | Jest in watch mode |
 
-**Automated Triggers:**
-* A PostgreSQL trigger automatically fires when a new user signs up in the `auth.users` table, generating a corresponding `profiles` row instantly.
-* A second trigger automatically updates the `updated_at` column whenever a profile row is modified.
+## Project structure (high level)
 
-## Storage Configuration
-User profile pictures are securely hosted using Supabase Storage.
-* Bucket: A public bucket named avatars is created automatically during the database migrations.
-* Upload Flow: When a user selects an image on the profile page, the file is uploaded to the avatars bucket using a combination of their user ID and a timestamp to prevent naming collisions. The resulting public URL is then saved to their database profile.
+| Path | Purpose |
+|------|---------|
+| `app/` | App Router routes, layouts, `api/` routes (`inngest`, `generate-monster`, …) |
+| `components/combat/` | GM dashboard, player views, lobby, hooks (`useCombatSession`) |
+| `components/ui/` | Shared UI (shadcn-style) |
+| `components/auth/` | Auth forms |
+| `lib/combat*.ts` | Pure rules (initiative, HP, conditions, resources) |
+| `lib/combatSupabase.ts` | Typed Supabase mutations for combat (damage, heals, resource saves) |
+| `lib/inngest/` | Inngest client + scheduled cleanup function |
+| `utils/supabase/` | `createSupabaseClient` (browser), `createSupabaseServerClient` (server/cookies) |
+| `supabase/migrations/` | Ordered SQL migrations |
+| `supabase/schemas/` | Reference schema snippets (e.g. `combat.sql`, `_profiles.sql`) |
+| `proxy.ts` | Next.js proxy: refreshes Supabase auth cookies on navigation |
 
-## Authentication Patterns and Flow
-This application uses `@supabase/ssr` to implement secure, cookie based authentication. 
+## Environment variables
 
-**Patterns used:**
-* **Server Components:** We use the `createSupabaseServerClient()` utility to access cookies and securely check the `user` object before rendering protected pages like the Dashboard or Profile.
-* **Client Components:** We use the `createSupabaseClient()` utility for any browser based interactions.
-* **Proxy (proxy.ts)** The proxy.ts file acts as our Next.js middleware, intercepting requests and refreshing stale authentication tokens automatically as the user navigates through the app.
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Public anon key (browser + server with RLS) |
+| `SUPABASE_SERVICE_ROLE_KEY` | For Inngest cleanup | **Server only.** Bypasses RLS for the daily stale-session delete job |
+| `INNGEST_DEV` | Local optional | e.g. `1` to point the SDK at the local Inngest dev server |
 
-## Unit Testing
-The project is configured with Jest and React Testing Library. The test suite covers React components, utility functions, and authentication forms. 
+Never expose `SUPABASE_SERVICE_ROLE_KEY` to the client or commit it to git.
 
-Test files are co-located next to the files they test using a `.test.tsx` or `.test.ts` extension.
+## Database (overview)
 
-* To run the test suite once: `npm run test`
-* To run the test suite in watch mode: `npm run test:watch`
-* To add new tests: Create a new file next to your component named `ComponentName.test.tsx` and import `render` and `screen` from `@testing-library/react`.
+- **`profiles`** — User display data; linked to `auth.users`; avatars in Storage.
+- **`sessions`** — Combat session: GM, name, round, turn index, status, `created_at` (used by retention cleanup).
+- **`combatants`** — Creatures/PCs: HP, temp HP, AC, initiative, resources JSON, conditions, optional `owner_player_id` for player-controlled rows.
+- **`session_players`** — Which users joined which session.
+- **`campaigns`** — Optional grouping for sessions (see migrations).
 
-## GitHub Actions Setup
-This project includes a continuous integration workflow that automatically runs your database migrations when you push code to the main branch.
+RLS policies restrict reads/writes to GMs and players as appropriate. Use migrations as the source of truth for columns and policies.
 
-To configure this workflow:
-1. Go to your GitHub repository settings.
-2. Navigate to Secrets and Variables > Actions.
-3. Add the following repository secrets:
-   * `SUPABASE_ACCESS_TOKEN`: A personal access token generated from your Supabase account settings.
-   * `SUPABASE_DB_PASSWORD`: The database password for your production Supabase project.
-   * `SUPABASE_PROJECT_ID`: The unique reference ID for your production Supabase project found in your project URL.
-4. Once added, any push to the main branch will trigger the `.github/workflows/supabase-migrations.yml` file and sync your database schemas.
+## Testing
 
-## Deployment Instructions
-To deploy this application to a production environment like Vercel:
+Tests use **Jest** and **React Testing Library**; files use `*.test.ts` / `*.test.tsx` next to sources.
 
-1. Create a new project on the Supabase website.
-2. Push your Next.js code to a GitHub repository.
-3. Import the repository into Vercel.
-4. Go to your Vercel project settings and add your production `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` from your Supabase dashboard.
-5. Click deploy. Vercel will build and host your Next.js application.
-6. In your production Supabase dashboard, go to Authentication > URL Configuration and update the Site URL to match your deployed Vercel domain.
+```bash
+npm run test
+```
+
+## Deployment (e.g. Vercel)
+
+1. Create a Supabase project and run migrations against it (or use linked CI).
+2. Set **`NEXT_PUBLIC_SUPABASE_URL`** and **`NEXT_PUBLIC_SUPABASE_ANON_KEY`** on the host.
+3. Set **`SUPABASE_SERVICE_ROLE_KEY`** for production if you rely on the Inngest cleanup job.
+4. Configure **Inngest Cloud** with your deployed **`/api/inngest`** URL and signing keys per [Inngest docs](https://www.inngest.com/docs).
+5. In Supabase **Authentication → URL configuration**, set the site URL to your production domain.
+
+## GitHub Actions
+
+If `.github/workflows/supabase-migrations.yml` is present, add repository secrets (`SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`, `SUPABASE_PROJECT_ID`) so pushes can apply migrations remotely.
 
 ## Troubleshooting
-* **Docker Errors:** If the setup script or `npx supabase start` fails, ensure Docker Desktop is open and actively running in the background.
-* **Port Conflicts:** If Supabase fails to start due to a port conflict, ensure no other local servers or databases are running on ports 5432 or 54321.
-* **Missing Data:** If your app loads but shows no data, verify that your `.env.local` file exists and contains the correct URL and anon key.
+
+- **Docker / Supabase won’t start** — Ensure Docker Desktop is running; free ports used by Supabase (often **54321** for API, **54322** for DB—see `npx supabase status`).
+- **Blank data / auth errors** — Confirm `.env.local` matches `npx supabase status` for local dev.
+- **Realtime quiet** — In the Supabase dashboard, enable replication for `sessions`, `combatants`, and `session_players` if tables were added without publication.
+- **Inngest functions not firing in prod** — Verify the app URL, signing key, and that `SUPABASE_SERVICE_ROLE_KEY` is set where the function runs.
+
+## Using this repo for a new project
+
+1. Clone the repository.
+2. Optionally remove `.git` and `git init` for a clean history.
+3. Run `node setup.js` (or manual steps above).
+4. Adapt `app/` routes and branding; keep or replace combat schema as needed.
